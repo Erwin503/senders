@@ -18,7 +18,7 @@ docker compose up -d
 npm run start:frontend
 ```
 
-Compose starts MySQL and the backend. The backend waits for MySQL, runs `npm run migrate`, then starts Nest.js. Migrations are safe to run again on container restarts.
+Compose starts MySQL, the backend, and the frontend. The backend waits for MySQL, runs `npm run migrate`, then starts Nest.js. Migrations are safe to run again on container restarts.
 
 Frontend: http://localhost:5173
 
