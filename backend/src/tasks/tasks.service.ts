@@ -1,8 +1,10 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import type { TelegramUser } from '../auth/telegram-user.type';
 import { KNEX } from '../database/database.module';
 import type { Db } from '../database/knex.type';
 import { CreateColumnDto, CreateTaskDto, MoveTaskDto, UpdateColumnDto, UpdateTaskDto } from './dto';
+import { TelegramApiService } from './telegram-api.service';
+
+type SiteUser = { id: string; name: string };
 
 type ColumnRow = {
   id: number;
@@ -23,13 +25,19 @@ type TaskRow = {
   storekeeper_name: string | null;
   driver_id: string | null;
   driver_name: string | null;
+  telegram_chat_id: string | null;
+  telegram_message_id: number | null;
+  telegram_message_text: string | null;
   created_at: Date;
   updated_at: Date;
 };
 
 @Injectable()
 export class TasksService {
-  constructor(@Inject(KNEX) private readonly db: Db) {}
+  constructor(
+    @Inject(KNEX) private readonly db: Db,
+    private readonly telegram: TelegramApiService
+  ) {}
 
   async getBoard() {
     const [columns, tasks] = await Promise.all([
@@ -70,7 +78,7 @@ export class TasksService {
     return this.db<ColumnRow>('columns').where({ id }).first();
   }
 
-  async createTask(dto: CreateTaskDto, user: TelegramUser) {
+  async createTask(dto: CreateTaskDto, user: SiteUser, source?: { chatId: string; messageId: number; text: string }) {
     const column = dto.columnId
       ? await this.db<ColumnRow>('columns').where({ id: dto.columnId }).first()
       : await this.db<ColumnRow>('columns').orderBy('position', 'asc').first();
@@ -90,9 +98,53 @@ export class TasksService {
       description: dto.description ?? null,
       position: (maxPosition?.max ?? -1) + 1,
       responsible_id: user.id,
-      responsible_name: user.name
+      responsible_name: user.name,
+      telegram_chat_id: source?.chatId ?? null,
+      telegram_message_id: source?.messageId ?? null,
+      telegram_message_text: source?.text ?? null
     });
 
+    const task = await this.db<TaskRow>('tasks').where({ id }).first();
+    if (source) {
+      await this.applyTelegramReaction(source.chatId, source.messageId, 'created');
+    }
+    return task ? this.serializeTask(task) : task;
+  }
+
+  async createFromTelegram(input: {
+    address: string;
+    comment: string;
+    sourceText: string;
+    chatId: string;
+    messageId: number;
+    senderId: string;
+    senderName: string;
+  }) {
+    const existing = await this.db<TaskRow>('tasks')
+      .where({ telegram_chat_id: input.chatId, telegram_message_id: input.messageId })
+      .first();
+    if (existing) return this.serializeTask(existing);
+
+    const column = await this.db<ColumnRow>('columns').where({ slug: 'created' }).first();
+    if (!column) throw new NotFoundException('Created stage not found');
+
+    const maxPosition = await this.db<TaskRow>('tasks')
+      .where({ column_id: column.id })
+      .max<{ max: number | null }>('position as max')
+      .first();
+    const [id] = await this.db<TaskRow>('tasks').insert({
+      column_id: column.id,
+      title: input.address,
+      description: input.comment || null,
+      position: (maxPosition?.max ?? -1) + 1,
+      responsible_id: input.senderId,
+      responsible_name: input.senderName,
+      telegram_chat_id: input.chatId,
+      telegram_message_id: input.messageId,
+      telegram_message_text: input.sourceText
+    });
+
+    await this.applyTelegramReaction(input.chatId, input.messageId, 'created');
     const task = await this.db<TaskRow>('tasks').where({ id }).first();
     return task ? this.serializeTask(task) : task;
   }
@@ -113,8 +165,8 @@ export class TasksService {
     return task ? this.serializeTask(task) : task;
   }
 
-  async moveTask(id: number, dto: MoveTaskDto, user: TelegramUser) {
-    return this.db.transaction(async (trx) => {
+  async moveTask(id: number, dto: MoveTaskDto, user: SiteUser) {
+    const { moved, changedStage, stage } = await this.db.transaction(async (trx) => {
       const task = await trx<TaskRow>('tasks').where({ id }).first();
       const column = await trx<ColumnRow>('columns').where({ id: dto.columnId }).first();
       if (!task || !column) {
@@ -145,8 +197,13 @@ export class TasksService {
       );
 
       const moved = await trx<TaskRow>('tasks').where({ id }).first();
-      return moved ? this.serializeTask(moved) : moved;
+      return { moved, changedStage: task.column_id !== column.id, stage: column.slug };
     });
+
+    if (changedStage && moved?.telegram_chat_id && moved.telegram_message_id) {
+      await this.applyTelegramReaction(moved.telegram_chat_id, moved.telegram_message_id, stage);
+    }
+    return moved ? this.serializeTask(moved) : moved;
   }
 
   async deleteTask(id: number) {
@@ -158,7 +215,7 @@ export class TasksService {
     return { ok: true };
   }
 
-  private roleUpdateForStage(slug: string, user: TelegramUser) {
+  private roleUpdateForStage(slug: string, user: SiteUser) {
     if (slug === 'assembled') {
       return {
         storekeeper_id: user.id,
@@ -190,8 +247,27 @@ export class TasksService {
         ? { id: task.storekeeper_id, name: task.storekeeper_name ?? task.storekeeper_id }
         : null,
       driver: task.driver_id ? { id: task.driver_id, name: task.driver_name ?? task.driver_id } : null,
+      telegramMessageText: task.telegram_message_text,
       createdAt: task.created_at,
       updatedAt: task.updated_at
     };
+  }
+
+  private async applyTelegramReaction(chatId: string, messageId: number, stage: string) {
+    const emojiByStage: Record<string, string> = {
+      created: '📝',
+      assembled: '📦',
+      shipped: '🚚',
+      ready: '✅'
+    };
+    const emoji = emojiByStage[stage];
+    if (!emoji) return;
+
+    try {
+      await this.telegram.setMessageReaction(chatId, messageId, emoji);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Could not react to Telegram order message: ${message}`);
+    }
   }
 }

@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
-type Person = {
-  id: string;
-  name: string;
-};
-
+type Person = { id: string; name: string };
 type Task = {
   id: number;
   columnId: number;
@@ -15,20 +11,15 @@ type Task = {
   responsible: Person | null;
   storekeeper: Person | null;
   driver: Person | null;
+  telegramMessageText: string | null;
 };
-
-type Column = {
-  id: number;
-  title: string;
-  slug: string;
-  position: number;
-  tasks: Task[];
-};
+type Column = { id: number; title: string; slug: string; position: number; tasks: Task[] };
 
 const columns = ref<Column[]>([]);
 const title = ref('');
 const description = ref('');
 const showTaskDetails = ref(false);
+const siteName = ref('');
 const loading = ref(true);
 const error = ref('');
 const draggedTask = ref<Task | null>(null);
@@ -36,56 +27,29 @@ const editingTaskId = ref<number | null>(null);
 const editTitle = ref('');
 const editDescription = ref('');
 const now = ref(new Date());
-
 let clock: number | undefined;
 
 const firstColumnId = computed(() => columns.value[0]?.id ?? null);
 const isAfterReadyCutoff = computed(() => now.value.getHours() >= 18);
-const currentUserName = computed(() => {
-  const user = window.Telegram?.WebApp?.initDataUnsafe?.user;
-  const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
-
-  return fullName || user?.username || 'Local User';
-});
-const hiddenReadyCount = computed(() => {
-  if (!isAfterReadyCutoff.value) {
-    return 0;
-  }
-
-  return columns.value.find((column) => column.slug === 'ready')?.tasks.length ?? 0;
-});
+const hiddenReadyCount = computed(() => isAfterReadyCutoff.value
+  ? columns.value.find((column) => column.slug === 'ready')?.tasks.length ?? 0
+  : 0);
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
-  };
-  const initData = window.Telegram?.WebApp?.initData;
-
-  if (initData) {
-    headers['x-telegram-init-data'] = initData;
-  }
-
   const response = await fetch(`/api${path}`, {
     ...options,
     headers: {
-      ...headers,
+      'Content-Type': 'application/json',
+      'x-user-name': siteName.value.trim() || 'РћРїРµСЂР°С‚РѕСЂ',
       ...(options?.headers ?? {})
     }
   });
-
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-
+  if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<T>;
 }
 
 function visibleTasks(column: Column) {
-  if (column.slug === 'ready' && isAfterReadyCutoff.value) {
-    return [];
-  }
-
-  return column.tasks;
+  return column.slug === 'ready' && isAfterReadyCutoff.value ? [] : column.tasks;
 }
 
 async function loadBoard() {
@@ -95,31 +59,37 @@ async function loadBoard() {
     const board = await api<{ columns: Column[] }>('/board');
     columns.value = board.columns;
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : 'Не удалось загрузить доску';
+    error.value = caught instanceof Error ? caught.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РґРѕСЃРєСѓ';
   } finally {
     loading.value = false;
   }
 }
 
+function saveSiteName() {
+  const clean = siteName.value.trim().slice(0, 160);
+  siteName.value = clean || 'РћРїРµСЂР°С‚РѕСЂ';
+  localStorage.setItem('kanban-user-name', siteName.value);
+}
+
 async function createTask() {
   const cleanTitle = title.value.trim();
-  if (!cleanTitle) {
-    return;
+  if (!cleanTitle || !firstColumnId.value) return;
+  try {
+    await api('/tasks', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: cleanTitle,
+        description: description.value.trim() || undefined,
+        columnId: firstColumnId.value
+      })
+    });
+    title.value = '';
+    description.value = '';
+    showTaskDetails.value = false;
+    await loadBoard();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ Р·Р°РєР°Р·';
   }
-
-  await api('/tasks', {
-    method: 'POST',
-    body: JSON.stringify({
-      title: cleanTitle,
-      description: description.value.trim() || undefined,
-      columnId: firstColumnId.value
-    })
-  });
-
-  title.value = '';
-  description.value = '';
-  showTaskDetails.value = false;
-  await loadBoard();
 }
 
 function startEdit(task: Task) {
@@ -135,54 +105,52 @@ function cancelEdit() {
 }
 
 async function saveEdit(taskId: number) {
-  const cleanTitle = editTitle.value.trim();
-  if (!cleanTitle) {
-    return;
+  if (!editTitle.value.trim()) return;
+  try {
+    await api(`/tasks/${taskId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title: editTitle.value.trim(), description: editDescription.value.trim() })
+    });
+    cancelEdit();
+    await loadBoard();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕС…СЂР°РЅРёС‚СЊ Р·Р°РєР°Р·';
   }
-
-  await api(`/tasks/${taskId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      title: cleanTitle,
-      description: editDescription.value.trim()
-    })
-  });
-
-  cancelEdit();
-  await loadBoard();
 }
 
 async function moveTask(columnId: number, position: number) {
-  if (!draggedTask.value) {
-    return;
+  if (!draggedTask.value) return;
+  try {
+    await api(`/tasks/${draggedTask.value.id}/move`, {
+      method: 'PATCH',
+      body: JSON.stringify({ columnId, position })
+    });
+    await loadBoard();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РёР·РјРµРЅРёС‚СЊ СЃС‚Р°РґРёСЋ Р·Р°РєР°Р·Р°';
+  } finally {
+    draggedTask.value = null;
   }
-
-  await api(`/tasks/${draggedTask.value.id}/move`, {
-    method: 'PATCH',
-    body: JSON.stringify({ columnId, position })
-  });
-  draggedTask.value = null;
-  await loadBoard();
 }
 
 async function deleteTask(taskId: number) {
-  await api(`/tasks/${taskId}`, { method: 'DELETE' });
-  await loadBoard();
+  if (!window.confirm('РЈРґР°Р»РёС‚СЊ Р·Р°РєР°Р·?')) return;
+  try {
+    await api(`/tasks/${taskId}`, { method: 'DELETE' });
+    await loadBoard();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ Р·Р°РєР°Р·';
+  }
 }
 
-onMounted(async () => {
-  window.Telegram?.WebApp?.ready();
-  window.Telegram?.WebApp?.expand();
-  clock = window.setInterval(() => {
-    now.value = new Date();
-  }, 30_000);
-  await loadBoard();
+onMounted(() => {
+  siteName.value = localStorage.getItem('kanban-user-name') || 'РћРїРµСЂР°С‚РѕСЂ';
+  clock = window.setInterval(() => { now.value = new Date(); }, 30_000);
+  void loadBoard();
 });
 
 onBeforeUnmount(() => {
-  if (clock) {
-    window.clearInterval(clock);
-  }
+  if (clock) window.clearInterval(clock);
 });
 </script>
 
@@ -190,24 +158,23 @@ onBeforeUnmount(() => {
   <main class="app-shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">Заказы</p>
-        <h1>Канбан</h1>
+        <p class="eyebrow">Р—Р°РєР°Р·С‹</p>
+        <h1>РљР°РЅР±Р°РЅ</h1>
       </div>
       <div class="topbar-actions">
-        <span class="user-pill">{{ currentUserName }}</span>
-        <button class="ghost-button" type="button" @click="loadBoard">Обновить</button>
+        <label class="operator-field">
+          <span>Р’С‹</span>
+          <input v-model="siteName" maxlength="160" @change="saveSiteName" />
+        </label>
+        <button class="ghost-button" type="button" @click="loadBoard">РћР±РЅРѕРІРёС‚СЊ</button>
       </div>
     </header>
 
-
     <p v-if="error" class="error-note">{{ error }}</p>
-    <p v-if="hiddenReadyCount" class="cutoff-note">
-      Готовые заказы скрыты после 18:00: {{ hiddenReadyCount }}
-    </p>
+    <p v-if="hiddenReadyCount" class="cutoff-note">Р“РѕС‚РѕРІС‹Рµ Р·Р°РєР°Р·С‹ СЃРєСЂС‹С‚С‹ РїРѕСЃР»Рµ 18:00: {{ hiddenReadyCount }}</p>
+    <p v-if="loading" class="state">Р—Р°РіСЂСѓР¶Р°СЋ РґРѕСЃРєСѓ...</p>
 
-    <p v-if="loading" class="state">Загружаю доску...</p>
-
-    <section v-else class="board" aria-label="Канбан заказов">
+    <section v-else class="board" aria-label="РљР°РЅР±Р°РЅ Р·Р°РєР°Р·РѕРІ">
       <article
         v-for="column in columns"
         :key="column.id"
@@ -222,17 +189,12 @@ onBeforeUnmount(() => {
         </div>
 
         <form v-if="column.id === firstColumnId" class="column-composer" @submit.prevent="createTask">
-          <input v-model="title" maxlength="160" placeholder="Новый заказ" />
+          <input v-model="title" maxlength="160" placeholder="РќРѕРІС‹Р№ Р·Р°РєР°Р·" />
           <button class="details-toggle" type="button" @click="showTaskDetails = !showTaskDetails">
-            {{ showTaskDetails ? 'Скрыть детали' : 'Детали' }}
+            {{ showTaskDetails ? 'РЎРєСЂС‹С‚СЊ РґРµС‚Р°Р»Рё' : 'Р”РµС‚Р°Р»Рё' }}
           </button>
-          <textarea
-            v-if="showTaskDetails"
-            v-model="description"
-            maxlength="1000"
-            placeholder="Комментарий, состав, адрес"
-          ></textarea>
-          <button class="composer-submit" type="submit">Добавить</button>
+          <textarea v-if="showTaskDetails" v-model="description" maxlength="1000" placeholder="РљРѕРјРјРµРЅС‚Р°СЂРёР№"></textarea>
+          <button class="composer-submit" type="submit">Р”РѕР±Р°РІРёС‚СЊ</button>
         </form>
 
         <div class="task-list">
@@ -249,33 +211,27 @@ onBeforeUnmount(() => {
               <input v-model="editTitle" maxlength="160" />
               <textarea v-model="editDescription" maxlength="1000"></textarea>
               <div class="card-actions">
-                <button class="primary-action" type="submit">Сохранить</button>
-                <button class="ghost-action" type="button" @click="cancelEdit">Отмена</button>
+                <button class="primary-action" type="submit">РЎРѕС…СЂР°РЅРёС‚СЊ</button>
+                <button class="ghost-action" type="button" @click="cancelEdit">РћС‚РјРµРЅР°</button>
               </div>
             </form>
-
             <template v-else>
               <div class="task-content">
                 <h3>{{ task.title }}</h3>
                 <p v-if="task.description">{{ task.description }}</p>
                 <dl class="people-list">
-                  <div v-if="task.responsible">
-                    <dt>Ответственный</dt>
-                    <dd>{{ task.responsible.name }}</dd>
-                  </div>
-                  <div v-if="task.storekeeper">
-                    <dt>Кладовщик</dt>
-                    <dd>{{ task.storekeeper.name }}</dd>
-                  </div>
-                  <div v-if="task.driver">
-                    <dt>Водитель</dt>
-                    <dd>{{ task.driver.name }}</dd>
-                  </div>
+                  <div v-if="task.responsible"><dt>РћС‚РІРµС‚СЃС‚РІРµРЅРЅС‹Р№</dt><dd>{{ task.responsible.name }}</dd></div>
+                  <div v-if="task.storekeeper"><dt>РљР»Р°РґРѕРІС‰РёРє</dt><dd>{{ task.storekeeper.name }}</dd></div>
+                  <div v-if="task.driver"><dt>Р’РѕРґРёС‚РµР»СЊ</dt><dd>{{ task.driver.name }}</dd></div>
                 </dl>
+                <details v-if="task.telegramMessageText" class="source-message">
+                  <summary>РСЃС…РѕРґРЅРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ</summary>
+                  <p>{{ task.telegramMessageText }}</p>
+                </details>
               </div>
               <div class="card-actions">
-                <button class="ghost-action" type="button" @click="startEdit(task)">Изменить</button>
-                <button class="danger-action" type="button" @click="deleteTask(task.id)">Удалить</button>
+                <button class="ghost-action" type="button" @click="startEdit(task)">РР·РјРµРЅРёС‚СЊ</button>
+                <button class="danger-action" type="button" @click="deleteTask(task.id)">РЈРґР°Р»РёС‚СЊ</button>
               </div>
             </template>
           </article>

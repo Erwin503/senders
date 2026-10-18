@@ -1,5 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Req } from '@nestjs/common';
-import type { RequestWithUser } from '../auth/telegram-user.type';
+import { Body, Controller, Delete, Get, Headers, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
 import { CreateColumnDto, CreateTaskDto, MoveTaskDto, UpdateColumnDto, UpdateTaskDto } from './dto';
 import { TasksService } from './tasks.service';
 
@@ -23,8 +22,8 @@ export class TasksController {
   }
 
   @Post('tasks')
-  createTask(@Body() dto: CreateTaskDto, @Req() request: RequestWithUser) {
-    return this.tasks.createTask(dto, request.telegramUser);
+  createTask(@Body() dto: CreateTaskDto, @Headers('x-user-name') userName?: string) {
+    return this.tasks.createTask(dto, this.siteUser(userName));
   }
 
   @Patch('tasks/:id')
@@ -33,12 +32,21 @@ export class TasksController {
   }
 
   @Patch('tasks/:id/move')
-  moveTask(@Param('id', ParseIntPipe) id: number, @Body() dto: MoveTaskDto, @Req() request: RequestWithUser) {
-    return this.tasks.moveTask(id, dto, request.telegramUser);
+  moveTask(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: MoveTaskDto,
+    @Headers('x-user-name') userName?: string
+  ) {
+    return this.tasks.moveTask(id, dto, this.siteUser(userName));
   }
 
   @Delete('tasks/:id')
   deleteTask(@Param('id', ParseIntPipe) id: number) {
     return this.tasks.deleteTask(id);
+  }
+
+  private siteUser(name?: string) {
+    const cleanName = name?.trim().slice(0, 160) || 'Оператор';
+    return { id: `site:${cleanName.toLocaleLowerCase('ru-RU')}`, name: cleanName };
   }
 }
