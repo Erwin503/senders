@@ -46,7 +46,13 @@ export class TasksController {
   }
 
   private siteUser(name?: string) {
-    const cleanName = name?.trim().slice(0, 160) || 'Оператор';
+    let decodedName = name;
+    try {
+      decodedName = name ? decodeURIComponent(name) : undefined;
+    } catch {
+      decodedName = name;
+    }
+    const cleanName = decodedName?.trim().slice(0, 160) || 'Оператор';
     return { id: `site:${cleanName.toLocaleLowerCase('ru-RU')}`, name: cleanName };
   }
 }
