@@ -28,10 +28,12 @@ Backend API: http://localhost:3000/api
 
 1. Create a bot with `@BotFather` and put its token in `TELEGRAM_BOT_TOKEN`.
 2. Restart the backend and add the bot to the order group.
-3. Send `/chatid@bot_username` in that group and copy the returned ID into `TELEGRAM_GROUP_ID` in `.env`.
-4. Restart the backend again. Mention the bot, then put the delivery address on the first line and the comment on the next line.
+3. In the target group, an administrator sends `/setchatid@bot_username`. The bot saves that group as the intake group in MySQL. Use `/chatid@bot_username` to display its ID.
+4. Mention the bot in a message, then put the delivery address on the first line and the comment on the next line.
 
 The bot stores the sender and original message, then creates a card in `создан`. Stage reactions are 📝 created, 📦 assembled, 🚚 shipped, and ✅ ready. The bot needs permission to react to messages in the group.
+
+Telegram polling diagnostics are written to `backend/logs/telegram-bot.log` (or `TELEGRAM_LOG_FILE`). In Docker, read them with `docker compose exec backend tail -f logs/telegram-bot.log`. The same structured events are also sent to the backend console log.
 
 Each website browser has a display name stored locally. It is used for operator, warehouse, and driver attribution; this is a display name, not a user account.
 

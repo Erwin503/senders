@@ -211,6 +211,10 @@ select {
   padding-bottom: 6px;
 }
 
+.mobile-stage-tabs {
+  display: none;
+}
+
 .column {
   min-height: 420px;
   border: 1px solid #e1e5eb;
@@ -291,6 +295,27 @@ select {
   overflow-wrap: anywhere;
 }
 
+.task-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.task-heading h3 {
+  min-width: 0;
+}
+
+.task-date {
+  flex: 0 0 auto;
+  padding-top: 1px;
+  color: #8a94a6;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .task-content p {
   margin-top: 7px;
   color: #667085;
@@ -355,6 +380,10 @@ select {
   gap: 8px;
 }
 
+.mobile-move-control {
+  display: none;
+}
+
 .card-actions button {
   min-height: 34px;
   border-radius: 8px;
@@ -386,22 +415,134 @@ select {
 
 @media (max-width: 760px) {
   .app-shell {
-    padding-inline: 12px;
+    padding: max(12px, env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom));
   }
 
   .topbar {
-    align-items: flex-start;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 14px;
   }
 
   .topbar-actions {
-    align-items: flex-end;
-    flex-direction: column;
-    gap: 8px;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .operator-field {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .operator-field input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .ghost-button {
+    min-height: 44px;
+  }
+
+  .mobile-stage-tabs {
+    display: flex;
+    gap: 4px;
+    margin: 0 -12px 12px;
+    padding: 0 12px;
+    overflow-x: auto;
+    border-bottom: 1px solid #d7dde6;
+    scrollbar-width: none;
+  }
+
+  .mobile-stage-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-stage-tabs button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    flex: 1 0 auto;
+    min-height: 44px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    padding: 0 9px;
+    background: transparent;
+    color: #667085;
+    font-size: 14px;
+    font-weight: 750;
+    white-space: nowrap;
+  }
+
+  .mobile-stage-tabs button.active {
+    border-bottom-color: #111827;
+    color: #111827;
+  }
+
+  .tab-count {
+    color: #8a94a6;
+    font-variant-numeric: tabular-nums;
   }
 
   .board {
-    grid-auto-columns: minmax(282px, 86vw);
-    grid-auto-flow: column;
-    grid-template-columns: none;
+    display: block;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .column {
+    min-height: auto;
+    padding: 12px;
+  }
+
+  .column:not(.column-mobile-active) {
+    display: none;
+  }
+
+  .column-composer input {
+    height: 46px;
+  }
+
+  .composer-submit {
+    min-height: 46px;
+  }
+
+  .task-card {
+    gap: 10px;
+  }
+
+  .card-actions {
+    justify-content: stretch;
+  }
+
+  .card-actions button {
+    min-height: 44px;
+    flex: 1;
+  }
+
+  .mobile-move-control {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    color: #667085;
+    font-size: 13px;
+    font-weight: 750;
+  }
+
+  .mobile-move-control select {
+    min-width: 150px;
+    min-height: 44px;
+    border: 1px solid #d7dde6;
+    padding: 0 10px;
+    background: #ffffff;
+    color: #18202d;
+    font-weight: 700;
+  }
+
+  .people-list div {
+    grid-template-columns: 88px minmax(0, 1fr);
   }
 }

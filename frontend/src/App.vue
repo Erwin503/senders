@@ -12,10 +12,13 @@ type Task = {
   storekeeper: Person | null;
   driver: Person | null;
   telegramMessageText: string | null;
+  readyAt: string | null;
+  createdAt: string;
 };
 type Column = { id: number; title: string; slug: string; position: number; tasks: Task[] };
 
 const columns = ref<Column[]>([]);
+const selectedColumnId = ref<number | null>(null);
 const title = ref('');
 const description = ref('');
 const showTaskDetails = ref(false);
@@ -30,9 +33,9 @@ const now = ref(new Date());
 let clock: number | undefined;
 
 const firstColumnId = computed(() => columns.value[0]?.id ?? null);
-const isAfterReadyCutoff = computed(() => now.value.getHours() >= 18);
+const isAfterReadyCutoff = computed(() => moscowHour(now.value) >= 18);
 const hiddenReadyCount = computed(() => isAfterReadyCutoff.value
-  ? columns.value.find((column) => column.slug === 'ready')?.tasks.length ?? 0
+  ? columns.value.find((column) => column.slug === 'ready')?.tasks.filter((task) => isToday(task.readyAt)).length ?? 0
   : 0);
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
@@ -49,7 +52,41 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 function visibleTasks(column: Column) {
-  return column.slug === 'ready' && isAfterReadyCutoff.value ? [] : column.tasks;
+  if (column.slug !== 'ready') return column.tasks;
+  if (isAfterReadyCutoff.value) return [];
+  return column.tasks.filter((task) => isToday(task.readyAt));
+}
+
+function isToday(value: string | Date | null) {
+  if (!value) return false;
+  return moscowDateKey(new Date(value)) === moscowDateKey(now.value);
+}
+
+function moscowDateKey(date: Date) {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Europe/Moscow',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+function moscowHour(date: Date) {
+  return Number(new Intl.DateTimeFormat('en', {
+    timeZone: 'Europe/Moscow',
+    hour: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date).find((part) => part.type === 'hour')?.value ?? 0);
+}
+
+function formatOrderDate(value: string) {
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  }).format(new Date(value));
 }
 
 async function loadBoard() {
@@ -58,6 +95,9 @@ async function loadBoard() {
   try {
     const board = await api<{ columns: Column[] }>('/board');
     columns.value = board.columns;
+    if (!columns.value.some((column) => column.id === selectedColumnId.value)) {
+      selectedColumnId.value = columns.value[0]?.id ?? null;
+    }
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : 'Не удалось загрузить доску';
   } finally {
@@ -133,6 +173,22 @@ async function moveTask(columnId: number, position: number) {
   }
 }
 
+async function moveTaskTo(task: Task, columnId: number) {
+  if (task.columnId === columnId) return;
+  const targetColumn = columns.value.find((column) => column.id === columnId);
+  if (!targetColumn) return;
+  try {
+    await api(`/tasks/${task.id}/move`, {
+      method: 'PATCH',
+      body: JSON.stringify({ columnId, position: visibleTasks(targetColumn).length })
+    });
+    selectedColumnId.value = columnId;
+    await loadBoard();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : 'Не удалось изменить стадию заказа';
+  }
+}
+
 async function deleteTask(taskId: number) {
   if (!window.confirm('Удалить заказ?')) return;
   try {
@@ -174,12 +230,27 @@ onBeforeUnmount(() => {
     <p v-if="hiddenReadyCount" class="cutoff-note">Готовые заказы скрыты после 18:00: {{ hiddenReadyCount }}</p>
     <p v-if="loading" class="state">Загружаю доску...</p>
 
-    <section v-else class="board" aria-label="Канбан заказов">
+    <nav v-if="!loading && columns.length" class="mobile-stage-tabs" role="tablist" aria-label="Стадии заказов">
+      <button
+        v-for="column in columns"
+        :key="column.id"
+        type="button"
+        role="tab"
+        :aria-selected="selectedColumnId === column.id"
+        :class="{ active: selectedColumnId === column.id }"
+        @click="selectedColumnId = column.id"
+      >
+        <span>{{ column.title }}</span>
+        <span class="tab-count">{{ visibleTasks(column).length }}</span>
+      </button>
+    </nav>
+
+    <section v-if="!loading" class="board" aria-label="Канбан заказов">
       <article
         v-for="column in columns"
         :key="column.id"
         class="column"
-        :class="`column-${column.slug}`"
+        :class="[`column-${column.slug}`, { 'column-mobile-active': selectedColumnId === column.id }]"
         @dragover.prevent
         @drop="moveTask(column.id, visibleTasks(column).length)"
       >
@@ -217,7 +288,10 @@ onBeforeUnmount(() => {
             </form>
             <template v-else>
               <div class="task-content">
-                <h3>{{ task.title }}</h3>
+                <div class="task-heading">
+                  <h3>{{ task.title }}</h3>
+                  <time class="task-date" :datetime="task.createdAt">{{ formatOrderDate(task.createdAt) }}</time>
+                </div>
                 <p v-if="task.description">{{ task.description }}</p>
                 <dl class="people-list">
                   <div v-if="task.responsible"><dt>Ответственный</dt><dd>{{ task.responsible.name }}</dd></div>
@@ -233,6 +307,12 @@ onBeforeUnmount(() => {
                 <button class="ghost-action" type="button" @click="startEdit(task)">Изменить</button>
                 <button class="danger-action" type="button" @click="deleteTask(task.id)">Удалить</button>
               </div>
+              <label class="mobile-move-control">
+                <span>Стадия</span>
+                <select :value="column.id" @change="moveTaskTo(task, Number(($event.target as HTMLSelectElement).value))">
+                  <option v-for="stage in columns" :key="stage.id" :value="stage.id">{{ stage.title }}</option>
+                </select>
+              </label>
             </template>
           </article>
         </div>

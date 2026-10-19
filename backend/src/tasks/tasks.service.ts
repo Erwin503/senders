@@ -28,6 +28,7 @@ type TaskRow = {
   telegram_chat_id: string | null;
   telegram_message_id: number | null;
   telegram_message_text: string | null;
+  ready_at: Date | string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -99,6 +100,7 @@ export class TasksService {
       position: (maxPosition?.max ?? -1) + 1,
       responsible_id: user.id,
       responsible_name: user.name,
+      ready_at: column.slug === 'ready' ? this.db.fn.now() : null,
       telegram_chat_id: source?.chatId ?? null,
       telegram_message_id: source?.messageId ?? null,
       telegram_message_text: source?.text ?? null
@@ -191,6 +193,9 @@ export class TasksService {
               column_id: dto.columnId,
               position,
               updated_at: trx.fn.now(),
+              ...(nextTask.id === id && task.column_id !== column.id
+                ? { ready_at: column.slug === 'ready' ? trx.fn.now() : null }
+                : {}),
               ...roleUpdate
             });
         })
@@ -248,6 +253,7 @@ export class TasksService {
         : null,
       driver: task.driver_id ? { id: task.driver_id, name: task.driver_name ?? task.driver_id } : null,
       telegramMessageText: task.telegram_message_text,
+      readyAt: task.ready_at,
       createdAt: task.created_at,
       updatedAt: task.updated_at
     };
@@ -255,10 +261,10 @@ export class TasksService {
 
   private async applyTelegramReaction(chatId: string, messageId: number, stage: string) {
     const emojiByStage: Record<string, string> = {
-      created: '📝',
-      assembled: '📦',
-      shipped: '🚚',
-      ready: '✅'
+      created: '👍',
+      assembled: '👌',
+      shipped: '🚀',
+      ready: '🎉'
     };
     const emoji = emojiByStage[stage];
     if (!emoji) return;
@@ -267,7 +273,18 @@ export class TasksService {
       await this.telegram.setMessageReaction(chatId, messageId, emoji);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`Could not react to Telegram order message: ${message}`);
+      if (message.includes('REACTION_INVALID') && emoji !== '👍') {
+        try {
+          await this.telegram.setMessageReaction(chatId, messageId, '👍');
+          console.warn(`Reaction ${emoji} is unavailable in chat ${chatId}; used 👍 instead`);
+          return;
+        } catch (fallbackError) {
+          const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+          console.error(`Could not react to Telegram order message with ${emoji} or 👍: ${message}; ${fallbackMessage}`);
+          return;
+        }
+      }
+      console.error(`Could not react to Telegram order message with ${emoji}: ${message}`);
     }
   }
 }

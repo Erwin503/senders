@@ -35,6 +35,10 @@ export class TelegramApiService {
     });
   }
 
+  getChatMember(chatId: string, userId: number) {
+    return this.call<{ status: string }>('getChatMember', { chat_id: chatId, user_id: userId });
+  }
+
   sendMessage(chatId: string, text: string, replyToMessageId?: number) {
     return this.call('sendMessage', {
       chat_id: chatId,
