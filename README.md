@@ -20,6 +20,8 @@ npm run start:frontend
 
 Compose starts MySQL, the backend, and the frontend. The backend waits for MySQL, runs `npm run migrate`, then starts Nest.js. Migrations are safe to run again on container restarts.
 
+The backend container uses `MYSQL_DOCKER_HOST` and `MYSQL_DOCKER_PORT` for its database connection. They default to `mysql:3306` for the Compose MySQL service. If the database runs elsewhere, set these variables in the Docker/hosting environment to the database host and port supplied by the provider.
+
 Frontend in Docker Compose: http://localhost:83
 
 Frontend with the local Vite dev server: http://localhost:5173
