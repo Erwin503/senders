@@ -173,12 +173,6 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     const setChatIdCommand = new RegExp(`^\\/setchatid(?:@${this.escapeRegex(this.botUsername)})?(?:\\s|$)`, 'i');
     if (setChatIdCommand.test(sourceText)) {
       try {
-        const member = await this.telegram.getChatMember(chatId, message.from.id);
-        if (!['creator', 'administrator'].includes(member.status)) {
-          await this.telegram.sendMessage(chatId, 'Установить беседу может только её администратор.', message.message_id);
-          this.writeLog('group_setup_denied', { chatId, senderId: message.from.id, status: member.status });
-          return;
-        }
         await this.settings.setGroupId(chatId);
         await this.telegram.sendMessage(chatId, `Эта беседа подключена для заявок: ${chatId}`, message.message_id);
         this.writeLog('group_configured', { chatId, senderId: message.from.id, senderName });
