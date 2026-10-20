@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 type TelegramResponse<T> = { ok: boolean; result: T; description?: string };
+export type TelegramSentMessage = { message_id: number; chat: { id: number | string } };
 
 @Injectable()
 export class TelegramApiService {
@@ -40,10 +41,14 @@ export class TelegramApiService {
   }
 
   sendMessage(chatId: string, text: string, replyToMessageId?: number) {
-    return this.call('sendMessage', {
+    return this.call<TelegramSentMessage>('sendMessage', {
       chat_id: chatId,
       text,
       ...(replyToMessageId ? { reply_parameters: { message_id: replyToMessageId } } : {})
     });
+  }
+
+  deleteMessage(chatId: string, messageId: number) {
+    return this.call<boolean>('deleteMessage', { chat_id: chatId, message_id: messageId });
   }
 }

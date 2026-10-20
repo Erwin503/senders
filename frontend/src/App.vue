@@ -21,7 +21,6 @@ const columns = ref<Column[]>([]);
 const selectedColumnId = ref<number | null>(null);
 const title = ref('');
 const description = ref('');
-const showTaskDetails = ref(false);
 const siteName = ref('');
 const loading = ref(true);
 const error = ref('');
@@ -125,7 +124,6 @@ async function createTask() {
     });
     title.value = '';
     description.value = '';
-    showTaskDetails.value = false;
     await loadBoard();
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : 'Не удалось создать заказ';
@@ -261,10 +259,7 @@ onBeforeUnmount(() => {
 
         <form v-if="column.id === firstColumnId" class="column-composer" @submit.prevent="createTask">
           <input v-model="title" maxlength="160" placeholder="Новый заказ" />
-          <button class="details-toggle" type="button" @click="showTaskDetails = !showTaskDetails">
-            {{ showTaskDetails ? 'Скрыть детали' : 'Детали' }}
-          </button>
-          <textarea v-if="showTaskDetails" v-model="description" maxlength="1000" placeholder="Комментарий"></textarea>
+          <textarea v-model="description" maxlength="1000" placeholder="Комментарий к заказу (необязательно)"></textarea>
           <button class="composer-submit" type="submit">Добавить</button>
         </form>
 

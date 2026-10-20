@@ -3,6 +3,7 @@ import { KNEX } from '../database/database.module';
 import type { Db } from '../database/knex.type';
 import { CreateColumnDto, CreateTaskDto, MoveTaskDto, UpdateColumnDto, UpdateTaskDto } from './dto';
 import { TelegramApiService } from './telegram-api.service';
+import { TelegramSettingsService } from './telegram-settings.service';
 
 type SiteUser = { id: string; name: string };
 
@@ -28,6 +29,7 @@ type TaskRow = {
   telegram_chat_id: string | null;
   telegram_message_id: number | null;
   telegram_message_text: string | null;
+  telegram_message_sent_by_bot: boolean;
   ready_at: Date | string | null;
   created_at: Date;
   updated_at: Date;
@@ -37,7 +39,8 @@ type TaskRow = {
 export class TasksService {
   constructor(
     @Inject(KNEX) private readonly db: Db,
-    private readonly telegram: TelegramApiService
+    private readonly telegram: TelegramApiService,
+    private readonly settings: TelegramSettingsService
   ) {}
 
   async getBoard() {
@@ -103,13 +106,20 @@ export class TasksService {
       ready_at: column.slug === 'ready' ? this.db.fn.now() : null,
       telegram_chat_id: source?.chatId ?? null,
       telegram_message_id: source?.messageId ?? null,
-      telegram_message_text: source?.text ?? null
+      telegram_message_text: source?.text ?? null,
+      telegram_message_sent_by_bot: false
     });
 
-    const task = await this.db<TaskRow>('tasks').where({ id }).first();
     if (source) {
       await this.applyTelegramReaction(source.chatId, source.messageId, 'created');
+    } else {
+      try {
+        await this.publishTaskToTelegram(id, column);
+      } catch (error) {
+        console.error(`Order ${id} was created but could not be posted to Telegram: ${this.errorMessage(error)}`);
+      }
     }
+    const task = await this.db<TaskRow>('tasks').where({ id }).first();
     return task ? this.serializeTask(task) : task;
   }
 
@@ -220,6 +230,59 @@ export class TasksService {
     return { ok: true };
   }
 
+  async refreshTelegramMessagesForActiveOrders() {
+    const groupId = await this.settings.getGroupId();
+    if (!this.telegram.configured || !groupId) return false;
+
+    const activeTasks = await this.db<TaskRow>('tasks')
+      .join('columns', 'tasks.column_id', 'columns.id')
+      .whereNot('columns.slug', 'ready')
+      .select('tasks.*', 'columns.slug as stage_slug', 'columns.title as stage_title') as Array<TaskRow & { stage_slug: string; stage_title: string }>;
+
+    for (const task of activeTasks) {
+      try {
+        await this.publishTaskToTelegram(task.id, { slug: task.stage_slug, title: task.stage_title }, groupId);
+      } catch (error) {
+        console.error(`Could not refresh Telegram message for order ${task.id}: ${this.errorMessage(error)}`);
+      }
+    }
+    return true;
+  }
+
+  private async publishTaskToTelegram(taskId: number, column: Pick<ColumnRow, 'slug' | 'title'>, groupId?: string) {
+    if (!this.telegram.configured) return;
+    const chatId = groupId ?? await this.settings.getGroupId();
+    if (!chatId) return;
+
+    const task = await this.db<TaskRow>('tasks').where({ id: taskId }).first();
+    if (!task) return;
+
+    if (task.telegram_message_sent_by_bot && task.telegram_chat_id && task.telegram_message_id) {
+      try {
+        await this.telegram.deleteMessage(task.telegram_chat_id, task.telegram_message_id);
+      } catch (error) {
+        console.warn(`Could not delete previous bot message for order ${task.id}: ${this.errorMessage(error)}`);
+      }
+    }
+
+    const lines = [
+      `Заказ #${task.id}`,
+      `Куда: ${task.title}`,
+      `Комментарий: ${task.description?.trim() || '—'}`,
+      `Статус: ${column.title}`,
+      `Ответственный: ${task.responsible_name || '—'}`
+    ];
+    const sent = await this.telegram.sendMessage(chatId, lines.join('\n'));
+    const sentChatId = String(sent.chat.id);
+    await this.db<TaskRow>('tasks').where({ id: task.id }).update({
+      telegram_chat_id: sentChatId,
+      telegram_message_id: sent.message_id,
+      telegram_message_sent_by_bot: true,
+      updated_at: this.db.fn.now()
+    });
+    await this.applyTelegramReaction(sentChatId, sent.message_id, column.slug);
+  }
+
   private roleUpdateForStage(slug: string, user: SiteUser) {
     if (slug === 'assembled') {
       return {
@@ -286,5 +349,9 @@ export class TasksService {
       }
       console.error(`Could not react to Telegram order message with ${emoji}: ${message}`);
     }
+  }
+
+  private errorMessage(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
   }
 }

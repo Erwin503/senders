@@ -41,6 +41,8 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   private botUsername = '';
   private botId?: number;
   private lastIdleLogAt = 0;
+  private refreshTimer?: ReturnType<typeof setInterval>;
+  private refreshInProgress = false;
   private readonly logFile = resolve(
     process.cwd(),
     process.env.TELEGRAM_LOG_FILE ?? 'logs/telegram-bot.log'
@@ -59,12 +61,39 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       this.writeLog('idle', { reason: 'TELEGRAM_BOT_TOKEN is not configured' });
       return;
     }
+    this.refreshTimer = setInterval(() => void this.checkDailyRefresh(), 60_000);
+    void this.checkDailyRefresh();
     void this.poll();
   }
 
   onModuleDestroy() {
     this.stopped = true;
     this.controller?.abort();
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+  }
+
+  private async checkDailyRefresh() {
+    if (this.stopped || this.refreshInProgress || !this.telegram.configured) return;
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', hourCycle: 'h23'
+    }).formatToParts(new Date());
+    const part = (type: string) => parts.find((item) => item.type === type)?.value ?? '';
+    const date = `${part('year')}-${part('month')}-${part('day')}`;
+    if (Number(part('hour')) < 10) return;
+
+    this.refreshInProgress = true;
+    try {
+      if ((await this.settings.getValue('last_order_refresh_date')) === date) return;
+      const refreshed = await this.tasks.refreshTelegramMessagesForActiveOrders();
+      if (!refreshed) return;
+      await this.settings.setValue('last_order_refresh_date', date);
+      this.writeLog('daily_order_messages_refreshed', { date });
+    } catch (error) {
+      this.writeLog('daily_order_refresh_failed', { date, error: this.errorMessage(error) });
+    } finally {
+      this.refreshInProgress = false;
+    }
   }
 
   private async poll() {
