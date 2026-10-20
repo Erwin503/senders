@@ -172,6 +172,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
     const setChatIdCommand = new RegExp(`^\\/setchatid(?:@${this.escapeRegex(this.botUsername)})?(?:\\s|$)`, 'i');
     if (setChatIdCommand.test(sourceText)) {
+      this.writeLog('group_setup_requested', { chatId, senderId: message.from.id, senderName });
       try {
         await this.settings.setGroupId(chatId);
         await this.telegram.sendMessage(chatId, `Эта беседа подключена для заявок: ${chatId}`, message.message_id);
@@ -181,7 +182,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         this.writeLog('group_setup_failed', { chatId, senderId: message.from.id, error: errorText });
         await this.telegram.sendMessage(
           chatId,
-          'Не удалось проверить права. Убедитесь, что бот добавлен в группу и может проверять участников.',
+          'Не удалось подключить эту беседу. Убедитесь, что бот может отправлять сообщения в группе.',
           message.message_id
         );
       }
