@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { KNEX } from '../database/database.module';
 import type { Db } from '../database/knex.type';
 import { CreateColumnDto, CreateTaskDto, MoveTaskDto, UpdateColumnDto, UpdateTaskDto } from './dto';
@@ -19,6 +19,7 @@ type TaskRow = {
   id: number;
   column_id: number;
   order_type: 'income' | 'expense';
+  external_number: string | null;
   title: string;
   description: string | null;
   position: number;
@@ -87,6 +88,16 @@ export class TasksService {
 
   async createTask(dto: CreateTaskDto, user: SiteUser, source?: { chatId: string; messageId: number; text: string }) {
     const orderType = dto.orderType ?? 'expense';
+    const externalNumber = dto.externalNumber?.trim() || null;
+    if (externalNumber) {
+      const existing = await this.db<TaskRow>('tasks').where({ external_number: externalNumber }).first();
+      if (existing) {
+        if (existing.order_type !== orderType) {
+          throw new ConflictException('This 1C number is already assigned to another order type');
+        }
+        return this.serializeTask(existing);
+      }
+    }
     const column = dto.columnId
       ? await this.db<ColumnRow>('columns').where({ id: dto.columnId }).first()
       : await this.db<ColumnRow>('columns').where({ order_type: orderType, slug: 'created' }).first();
@@ -106,6 +117,7 @@ export class TasksService {
     const [id] = await this.db<TaskRow>('tasks').insert({
       column_id: column.id,
       order_type: orderType,
+      external_number: externalNumber,
       title: dto.title,
       description: dto.description ?? null,
       position: (maxPosition?.max ?? -1) + 1,
@@ -234,6 +246,12 @@ export class TasksService {
     return moved ? this.serializeTask(moved) : moved;
   }
 
+  async moveTaskByExternalNumber(externalNumber: string, dto: MoveTaskDto, user: SiteUser) {
+    const task = await this.db<TaskRow>('tasks').where({ external_number: externalNumber }).first();
+    if (!task) throw new NotFoundException('Task with this 1C number was not found');
+    return this.moveTask(task.id, dto, user);
+  }
+
   async deleteTask(id: number) {
     const deleted = await this.db<TaskRow>('tasks').where({ id }).delete();
     if (!deleted) {
@@ -281,6 +299,7 @@ export class TasksService {
     const lines = [
       `Заказ #${task.id}`,
       `Тип: ${task.order_type === 'income' ? 'приход' : 'расход'}`,
+      ...(task.external_number ? [`Номер 1С: ${task.external_number}`] : []),
       `Куда: ${task.title}`,
       `Комментарий: ${task.description?.trim() || '—'}`,
       `Статус: ${column.title}`,
@@ -320,6 +339,7 @@ export class TasksService {
       id: task.id,
       columnId: task.column_id,
       orderType: task.order_type,
+      externalNumber: task.external_number,
       title: task.title,
       description: task.description,
       position: task.position,

@@ -5,6 +5,11 @@ export class CreateTaskDto {
   @IsIn(['income', 'expense'])
   orderType?: 'income' | 'expense';
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  externalNumber?: string;
+
   @IsString()
   @MaxLength(160)
   title!: string;
@@ -40,6 +45,12 @@ export class MoveTaskDto {
   @IsInt()
   @Min(0)
   position!: number;
+}
+
+export class MoveTaskByExternalNumberDto extends MoveTaskDto {
+  @IsString()
+  @MaxLength(100)
+  externalNumber!: string;
 }
 
 export class CreateColumnDto {

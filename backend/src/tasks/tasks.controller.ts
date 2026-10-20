@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Headers, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
-import { CreateColumnDto, CreateTaskDto, MoveTaskDto, UpdateColumnDto, UpdateTaskDto } from './dto';
+import { CreateColumnDto, CreateTaskDto, MoveTaskByExternalNumberDto, MoveTaskDto, UpdateColumnDto, UpdateTaskDto } from './dto';
 import { TasksService } from './tasks.service';
 
 @Controller()
@@ -38,6 +38,14 @@ export class TasksController {
     @Headers('x-user-name') userName?: string
   ) {
     return this.tasks.moveTask(id, dto, this.siteUser(userName));
+  }
+
+  @Patch('tasks/move-by-external-number')
+  moveTaskByExternalNumber(
+    @Body() dto: MoveTaskByExternalNumberDto,
+    @Headers('x-user-name') userName?: string
+  ) {
+    return this.tasks.moveTaskByExternalNumber(dto.externalNumber, dto, this.siteUser(userName));
   }
 
   @Delete('tasks/:id')
