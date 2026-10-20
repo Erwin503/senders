@@ -44,7 +44,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "80:5173"
+      - "83:5173"
     restart: unless-stopped
 
 volumes:
