@@ -210,19 +210,31 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     const textWithoutMention = this.removeMentionRanges(rawSourceText, mentionRanges).trim();
     const lines = textWithoutMention
       .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
+      .map((line) => line.trim());
     const address = lines[0];
     if (!address) {
       await this.telegram.sendMessage(chatId, 'Не вижу адрес доставки в первой строке.', message.message_id);
       this.writeLog('message_rejected', { chatId, messageId: message.message_id, reason: 'empty address' });
       return;
     }
+    const orderTypeLabel = (lines[2] ?? '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
+    const hasExpenseType = /(?:^|[^\p{L}])везем(?:$|[^\p{L}])/u.test(orderTypeLabel);
+    const hasIncomeType = /(?:^|[^\p{L}])забираем(?:$|[^\p{L}])/u.test(orderTypeLabel);
+    if (hasExpenseType === hasIncomeType) {
+      await this.telegram.sendMessage(
+        chatId,
+        'В третьей строке укажите тип заказа: «везём» (расход) или «забираем» (приход).',
+        message.message_id
+      );
+      this.writeLog('message_rejected', { chatId, messageId: message.message_id, reason: 'invalid or missing order type', typeLine: lines[2] ?? '' });
+      return;
+    }
 
     try {
       await this.tasks.createFromTelegram({
         address,
-        comment: lines.slice(1).join('\n'),
+        comment: lines[1] ?? '',
+        orderType: hasIncomeType ? 'income' : 'expense',
         sourceText,
         chatId,
         messageId: message.message_id,
@@ -244,7 +256,10 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
-    this.writeLog('order_created', { chatId, messageId: message.message_id, senderName, address });
+    this.writeLog('order_created', {
+      chatId, messageId: message.message_id, senderName, address,
+      orderType: hasIncomeType ? 'income' : 'expense'
+    });
   }
 
   private writeLog(event: string, details: Record<string, unknown> = {}) {

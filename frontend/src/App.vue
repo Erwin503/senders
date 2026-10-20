@@ -5,6 +5,7 @@ type Person = { id: string; name: string };
 type Task = {
   id: number;
   columnId: number;
+  orderType: 'income' | 'expense';
   title: string;
   description: string | null;
   position: number;
@@ -15,9 +16,10 @@ type Task = {
   readyAt: string | null;
   createdAt: string;
 };
-type Column = { id: number; title: string; slug: string; position: number; tasks: Task[] };
+type Column = { id: number; title: string; slug: string; orderType: 'income' | 'expense'; position: number; tasks: Task[] };
 
 const columns = ref<Column[]>([]);
+const orderType = ref<'income' | 'expense'>('expense');
 const selectedColumnId = ref<number | null>(null);
 const title = ref('');
 const description = ref('');
@@ -31,10 +33,11 @@ const editDescription = ref('');
 const now = ref(new Date());
 let clock: number | undefined;
 
-const firstColumnId = computed(() => columns.value[0]?.id ?? null);
+const visibleColumns = computed(() => columns.value.filter((column) => column.orderType === orderType.value));
+const firstColumnId = computed(() => visibleColumns.value.find((column) => column.slug === 'created')?.id ?? null);
 const isAfterReadyCutoff = computed(() => moscowHour(now.value) >= 18);
 const hiddenReadyCount = computed(() => isAfterReadyCutoff.value
-  ? columns.value.find((column) => column.slug === 'ready')?.tasks.filter((task) => isToday(task.readyAt)).length ?? 0
+  ? visibleColumns.value.find((column) => column.slug === 'ready')?.tasks.filter((task) => isToday(task.readyAt)).length ?? 0
   : 0);
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
@@ -94,14 +97,19 @@ async function loadBoard() {
   try {
     const board = await api<{ columns: Column[] }>('/board');
     columns.value = board.columns;
-    if (!columns.value.some((column) => column.id === selectedColumnId.value)) {
-      selectedColumnId.value = columns.value[0]?.id ?? null;
+    if (!visibleColumns.value.some((column) => column.id === selectedColumnId.value)) {
+      selectedColumnId.value = firstColumnId.value;
     }
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : 'Не удалось загрузить доску';
   } finally {
     loading.value = false;
   }
+}
+
+function selectOrderType(value: 'income' | 'expense') {
+  orderType.value = value;
+  selectedColumnId.value = columns.value.find((column) => column.orderType === value && column.slug === 'created')?.id ?? null;
 }
 
 function saveSiteName() {
@@ -119,6 +127,7 @@ async function createTask() {
       body: JSON.stringify({
         title: cleanTitle,
         description: description.value.trim() || undefined,
+        orderType: orderType.value,
         columnId: firstColumnId.value
       })
     });
@@ -228,9 +237,14 @@ onBeforeUnmount(() => {
     <p v-if="hiddenReadyCount" class="cutoff-note">Готовые заказы скрыты после 18:00: {{ hiddenReadyCount }}</p>
     <p v-if="loading" class="state">Загружаю доску...</p>
 
-    <nav v-if="!loading && columns.length" class="mobile-stage-tabs" role="tablist" aria-label="Стадии заказов">
+    <nav v-if="!loading && columns.length" class="order-type-tabs" role="tablist" aria-label="Тип заказов">
+      <button type="button" role="tab" :aria-selected="orderType === 'expense'" :class="{ active: orderType === 'expense' }" @click="selectOrderType('expense')">Расход</button>
+      <button type="button" role="tab" :aria-selected="orderType === 'income'" :class="{ active: orderType === 'income' }" @click="selectOrderType('income')">Приход</button>
+    </nav>
+
+    <nav v-if="!loading && visibleColumns.length" class="mobile-stage-tabs" role="tablist" aria-label="Стадии заказов">
       <button
-        v-for="column in columns"
+        v-for="column in visibleColumns"
         :key="column.id"
         type="button"
         role="tab"
@@ -243,9 +257,9 @@ onBeforeUnmount(() => {
       </button>
     </nav>
 
-    <section v-if="!loading" class="board" aria-label="Канбан заказов">
+    <section v-if="!loading" class="board" :style="{ '--column-count': visibleColumns.length }" :aria-label="`Канбан: ${orderType === 'income' ? 'приход' : 'расход'}`">
       <article
-        v-for="column in columns"
+        v-for="column in visibleColumns"
         :key="column.id"
         class="column"
         :class="[`column-${column.slug}`, { 'column-mobile-active': selectedColumnId === column.id }]"
@@ -305,7 +319,7 @@ onBeforeUnmount(() => {
               <label class="mobile-move-control">
                 <span>Стадия</span>
                 <select :value="column.id" @change="moveTaskTo(task, Number(($event.target as HTMLSelectElement).value))">
-                  <option v-for="stage in columns" :key="stage.id" :value="stage.id">{{ stage.title }}</option>
+                  <option v-for="stage in visibleColumns" :key="stage.id" :value="stage.id">{{ stage.title }}</option>
                 </select>
               </label>
             </template>

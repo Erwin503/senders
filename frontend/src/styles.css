@@ -205,10 +205,36 @@ select {
 
 .board {
   display: grid;
-  grid-template-columns: repeat(4, minmax(236px, 1fr));
+  grid-template-columns: repeat(var(--column-count, 4), minmax(236px, 1fr));
   gap: 12px;
   overflow-x: auto;
   padding-bottom: 6px;
+}
+
+.order-type-tabs {
+  display: flex;
+  width: fit-content;
+  gap: 4px;
+  margin: 0 0 12px;
+  border: 1px solid #d7dde6;
+  border-radius: 8px;
+  background: #eef1f4;
+  padding: 3px;
+}
+
+.order-type-tabs button {
+  min-width: 104px;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  color: #667085;
+  font-weight: 750;
+}
+
+.order-type-tabs button.active {
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 1px 3px rgb(16 24 40 / 12%);
 }
 
 .mobile-stage-tabs {

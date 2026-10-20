@@ -1,6 +1,10 @@
 import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreateTaskDto {
+  @IsOptional()
+  @IsIn(['income', 'expense'])
+  orderType?: 'income' | 'expense';
+
   @IsString()
   @MaxLength(160)
   title!: string;
@@ -51,6 +55,6 @@ export class UpdateColumnDto {
   title?: string;
 
   @IsOptional()
-  @IsIn(['created', 'assembled', 'shipped', 'ready', 'custom'])
+  @IsIn(['created', 'assembled', 'shipped', 'ready', 'picked_up', 'stocked', 'custom'])
   slug?: string;
 }

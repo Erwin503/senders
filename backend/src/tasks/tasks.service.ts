@@ -11,12 +11,14 @@ type ColumnRow = {
   id: number;
   title: string;
   slug: string;
+  order_type: 'income' | 'expense';
   position: number;
 };
 
 type TaskRow = {
   id: number;
   column_id: number;
+  order_type: 'income' | 'expense';
   title: string;
   description: string | null;
   position: number;
@@ -54,6 +56,7 @@ export class TasksService {
         id: column.id,
         title: column.title,
         slug: column.slug,
+        orderType: column.order_type,
         position: column.position,
         tasks: tasks
           .filter((task) => task.column_id === column.id)
@@ -83,12 +86,16 @@ export class TasksService {
   }
 
   async createTask(dto: CreateTaskDto, user: SiteUser, source?: { chatId: string; messageId: number; text: string }) {
+    const orderType = dto.orderType ?? 'expense';
     const column = dto.columnId
       ? await this.db<ColumnRow>('columns').where({ id: dto.columnId }).first()
-      : await this.db<ColumnRow>('columns').orderBy('position', 'asc').first();
+      : await this.db<ColumnRow>('columns').where({ order_type: orderType, slug: 'created' }).first();
 
     if (!column) {
       throw new NotFoundException('Column not found');
+    }
+    if (column.order_type !== orderType) {
+      throw new NotFoundException('The selected stage does not belong to this order type');
     }
 
     const maxPosition = await this.db<TaskRow>('tasks')
@@ -98,6 +105,7 @@ export class TasksService {
 
     const [id] = await this.db<TaskRow>('tasks').insert({
       column_id: column.id,
+      order_type: orderType,
       title: dto.title,
       description: dto.description ?? null,
       position: (maxPosition?.max ?? -1) + 1,
@@ -126,6 +134,7 @@ export class TasksService {
   async createFromTelegram(input: {
     address: string;
     comment: string;
+    orderType: 'income' | 'expense';
     sourceText: string;
     chatId: string;
     messageId: number;
@@ -137,7 +146,7 @@ export class TasksService {
       .first();
     if (existing) return this.serializeTask(existing);
 
-    const column = await this.db<ColumnRow>('columns').where({ slug: 'created' }).first();
+    const column = await this.db<ColumnRow>('columns').where({ slug: 'created', order_type: input.orderType }).first();
     if (!column) throw new NotFoundException('Created stage not found');
 
     const maxPosition = await this.db<TaskRow>('tasks')
@@ -146,6 +155,7 @@ export class TasksService {
       .first();
     const [id] = await this.db<TaskRow>('tasks').insert({
       column_id: column.id,
+      order_type: input.orderType,
       title: input.address,
       description: input.comment || null,
       position: (maxPosition?.max ?? -1) + 1,
@@ -183,6 +193,9 @@ export class TasksService {
       const column = await trx<ColumnRow>('columns').where({ id: dto.columnId }).first();
       if (!task || !column) {
         throw new NotFoundException('Task or column not found');
+      }
+      if (task.order_type !== column.order_type) {
+        throw new NotFoundException('Orders cannot be moved between income and expense boards');
       }
 
       const targetTasks = await trx<TaskRow>('tasks')
@@ -236,7 +249,7 @@ export class TasksService {
 
     const activeTasks = await this.db<TaskRow>('tasks')
       .join('columns', 'tasks.column_id', 'columns.id')
-      .whereNot('columns.slug', 'ready')
+      .whereNotIn('columns.slug', ['ready', 'stocked'])
       .select('tasks.*', 'columns.slug as stage_slug', 'columns.title as stage_title') as Array<TaskRow & { stage_slug: string; stage_title: string }>;
 
     for (const task of activeTasks) {
@@ -267,6 +280,7 @@ export class TasksService {
 
     const lines = [
       `Заказ #${task.id}`,
+      `Тип: ${task.order_type === 'income' ? 'приход' : 'расход'}`,
       `Куда: ${task.title}`,
       `Комментарий: ${task.description?.trim() || '—'}`,
       `Статус: ${column.title}`,
@@ -305,6 +319,7 @@ export class TasksService {
     return {
       id: task.id,
       columnId: task.column_id,
+      orderType: task.order_type,
       title: task.title,
       description: task.description,
       position: task.position,
@@ -327,7 +342,9 @@ export class TasksService {
       created: '👍',
       assembled: '👌',
       shipped: '🚀',
-      ready: '🎉'
+      ready: '🎉',
+      picked_up: '🚚',
+      stocked: '✅'
     };
     const emoji = emojiByStage[stage];
     if (!emoji) return;
