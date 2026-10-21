@@ -186,17 +186,6 @@ select {
   overflow-wrap: anywhere;
 }
 
-.cutoff-note {
-  margin: 0 0 12px;
-  border: 1px solid #ead8a5;
-  border-radius: 8px;
-  background: #fff8e6;
-  padding: 10px 12px;
-  color: #7a5a12;
-  font-size: 14px;
-  font-weight: 650;
-}
-
 .state {
   padding: 32px 0;
   color: #6b7280;

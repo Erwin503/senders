@@ -36,9 +36,6 @@ let clock: number | undefined;
 const visibleColumns = computed(() => columns.value.filter((column) => column.orderType === orderType.value));
 const firstColumnId = computed(() => visibleColumns.value.find((column) => column.slug === 'created')?.id ?? null);
 const isAfterReadyCutoff = computed(() => moscowHour(now.value) >= 18);
-const hiddenReadyCount = computed(() => isAfterReadyCutoff.value
-  ? visibleColumns.value.find((column) => column.slug === 'ready')?.tasks.filter((task) => isToday(task.readyAt)).length ?? 0
-  : 0);
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -234,7 +231,6 @@ onBeforeUnmount(() => {
     </header>
 
     <p v-if="error" class="error-note">{{ error }}</p>
-    <p v-if="hiddenReadyCount" class="cutoff-note">Готовые заказы скрыты после 18:00: {{ hiddenReadyCount }}</p>
     <p v-if="loading" class="state">Загружаю доску...</p>
 
     <nav v-if="!loading && columns.length" class="order-type-tabs" role="tablist" aria-label="Тип заказов">
