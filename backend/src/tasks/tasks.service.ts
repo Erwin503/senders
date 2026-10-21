@@ -454,8 +454,12 @@ export class TasksService {
   }
 
   private async applyTelegramReaction(chatId: string, messageId: number, stage: string) {
+    if (stage === 'created') {
+      await this.clearTelegramReaction(chatId, messageId);
+      return;
+    }
+
     const emojiByStage: Record<string, string> = {
-      created: '👍',
       assembled: '👌',
       shipped: '🚀',
       ready: '🎉',
