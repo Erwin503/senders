@@ -220,10 +220,12 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     const orderTypeLabel = (lines[2] ?? '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
     const hasExpenseType = /(?:^|[^\p{L}])везем(?:$|[^\p{L}])/u.test(orderTypeLabel);
     const hasIncomeType = /(?:^|[^\p{L}])забираем(?:$|[^\p{L}])/u.test(orderTypeLabel);
-    if (hasExpenseType === hasIncomeType) {
+    const hasStoreType = /(?:^|[^\p{L}])(?:магазин|оставить)(?:$|[^\p{L}])/u.test(orderTypeLabel);
+    const matches = [hasExpenseType, hasIncomeType, hasStoreType].filter(Boolean).length;
+    if (matches !== 1) {
       await this.telegram.sendMessage(
         chatId,
-        'В третьей строке укажите тип заказа: «везём» (расход) или «забираем» (приход).',
+        'В третьей строке укажите тип заказа: «везём» (расход), «забираем» (приход) или «магазин» (оставить на магазине).',
         message.message_id
       );
       this.writeLog('message_rejected', { chatId, messageId: message.message_id, reason: 'invalid or missing order type', typeLine: lines[2] ?? '' });
@@ -234,7 +236,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       await this.tasks.createFromTelegram({
         address,
         comment: lines[1] ?? '',
-        orderType: hasIncomeType ? 'income' : 'expense',
+        orderType: hasIncomeType ? 'income' : hasStoreType ? 'store' : 'expense',
         sourceText,
         chatId,
         messageId: message.message_id,
@@ -258,7 +260,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     }
     this.writeLog('order_created', {
       chatId, messageId: message.message_id, senderName, address,
-      orderType: hasIncomeType ? 'income' : 'expense'
+      orderType: hasIncomeType ? 'income' : hasStoreType ? 'store' : 'expense'
     });
   }
 

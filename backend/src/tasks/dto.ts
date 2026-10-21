@@ -2,8 +2,8 @@ import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validat
 
 export class CreateTaskDto {
   @IsOptional()
-  @IsIn(['income', 'expense'])
-  orderType?: 'income' | 'expense';
+  @IsIn(['income', 'expense', 'store'])
+  orderType?: 'income' | 'expense' | 'store';
 
   @IsOptional()
   @IsString()

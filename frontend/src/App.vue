@@ -5,7 +5,7 @@ type Person = { id: string; name: string };
 type Task = {
   id: number;
   columnId: number;
-  orderType: 'income' | 'expense';
+  orderType: 'income' | 'expense' | 'store';
   title: string;
   description: string | null;
   position: number;
@@ -16,10 +16,10 @@ type Task = {
   readyAt: string | null;
   createdAt: string;
 };
-type Column = { id: number; title: string; slug: string; orderType: 'income' | 'expense'; position: number; tasks: Task[] };
+type Column = { id: number; title: string; slug: string; orderType: 'income' | 'expense' | 'store'; position: number; tasks: Task[] };
 
 const columns = ref<Column[]>([]);
-const orderType = ref<'income' | 'expense'>('expense');
+const orderType = ref<'income' | 'expense' | 'store'>('expense');
 const selectedColumnId = ref<number | null>(null);
 const title = ref('');
 const description = ref('');
@@ -107,7 +107,7 @@ async function loadBoard() {
   }
 }
 
-function selectOrderType(value: 'income' | 'expense') {
+function selectOrderType(value: 'income' | 'expense' | 'store') {
   orderType.value = value;
   selectedColumnId.value = columns.value.find((column) => column.orderType === value && column.slug === 'created')?.id ?? null;
 }
@@ -240,6 +240,7 @@ onBeforeUnmount(() => {
     <nav v-if="!loading && columns.length" class="order-type-tabs" role="tablist" aria-label="Тип заказов">
       <button type="button" role="tab" :aria-selected="orderType === 'expense'" :class="{ active: orderType === 'expense' }" @click="selectOrderType('expense')">Расход</button>
       <button type="button" role="tab" :aria-selected="orderType === 'income'" :class="{ active: orderType === 'income' }" @click="selectOrderType('income')">Приход</button>
+      <button type="button" role="tab" :aria-selected="orderType === 'store'" :class="{ active: orderType === 'store' }" @click="selectOrderType('store')">На магазин</button>
     </nav>
 
     <nav v-if="!loading && visibleColumns.length" class="mobile-stage-tabs" role="tablist" aria-label="Стадии заказов">
@@ -257,7 +258,12 @@ onBeforeUnmount(() => {
       </button>
     </nav>
 
-    <section v-if="!loading" class="board" :style="{ '--column-count': visibleColumns.length }" :aria-label="`Канбан: ${orderType === 'income' ? 'приход' : 'расход'}`">
+    <section
+      v-if="!loading"
+      class="board"
+      :style="{ '--column-count': visibleColumns.length }"
+      :aria-label="`Канбан: ${orderType === 'income' ? 'приход' : orderType === 'store' ? 'на магазин' : 'расход'}`"
+    >
       <article
         v-for="column in visibleColumns"
         :key="column.id"

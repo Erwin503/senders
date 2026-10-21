@@ -36,6 +36,14 @@ export class TelegramApiService {
     });
   }
 
+  clearMessageReaction(chatId: string, messageId: number) {
+    return this.call<boolean>('setMessageReaction', { chat_id: chatId, message_id: messageId, reaction: [] });
+  }
+
+  editMessageText(chatId: string, messageId: number, text: string) {
+    return this.call<boolean | TelegramSentMessage>('editMessageText', { chat_id: chatId, message_id: messageId, text });
+  }
+
   sendMessage(chatId: string, text: string, replyToMessageId?: number) {
     return this.call<TelegramSentMessage>('sendMessage', {
       chat_id: chatId,

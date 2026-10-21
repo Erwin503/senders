@@ -11,14 +11,14 @@ type ColumnRow = {
   id: number;
   title: string;
   slug: string;
-  order_type: 'income' | 'expense';
+  order_type: 'income' | 'expense' | 'store';
   position: number;
 };
 
 type TaskRow = {
   id: number;
   column_id: number;
-  order_type: 'income' | 'expense';
+  order_type: 'income' | 'expense' | 'store';
   external_number: string | null;
   title: string;
   description: string | null;
@@ -33,6 +33,8 @@ type TaskRow = {
   telegram_message_id: number | null;
   telegram_message_text: string | null;
   telegram_message_sent_by_bot: boolean;
+  telegram_source_chat_id: string | null;
+  telegram_source_message_id: number | null;
   ready_at: Date | string | null;
   created_at: Date;
   updated_at: Date;
@@ -146,7 +148,7 @@ export class TasksService {
   async createFromTelegram(input: {
     address: string;
     comment: string;
-    orderType: 'income' | 'expense';
+    orderType: 'income' | 'expense' | 'store';
     sourceText: string;
     chatId: string;
     messageId: number;
@@ -175,7 +177,10 @@ export class TasksService {
       responsible_name: input.senderName,
       telegram_chat_id: input.chatId,
       telegram_message_id: input.messageId,
-      telegram_message_text: input.sourceText
+      telegram_message_text: input.sourceText,
+      telegram_source_chat_id: input.chatId,
+      telegram_source_message_id: input.messageId,
+      telegram_message_sent_by_bot: false
     });
 
     await this.applyTelegramReaction(input.chatId, input.messageId, 'created');
@@ -196,7 +201,10 @@ export class TasksService {
     }
 
     const task = await this.db<TaskRow>('tasks').where({ id }).first();
-    return task ? this.serializeTask(task) : task;
+    if (!task) return task;
+    const column = await this.db<ColumnRow>('columns').where({ id: task.column_id }).first();
+    if (column) await this.syncTelegramAfterEdit(task, column);
+    return this.serializeTask(task);
   }
 
   async moveTask(id: number, dto: MoveTaskDto, user: SiteUser) {
@@ -253,10 +261,15 @@ export class TasksService {
   }
 
   async deleteTask(id: number) {
+    const task = await this.db<TaskRow>('tasks').where({ id }).first();
+    if (!task) throw new NotFoundException('Task not found');
+
     const deleted = await this.db<TaskRow>('tasks').where({ id }).delete();
     if (!deleted) {
       throw new NotFoundException('Task not found');
     }
+
+    await this.syncTelegramAfterDelete(task);
 
     return { ok: true };
   }
@@ -296,24 +309,109 @@ export class TasksService {
       }
     }
 
-    const lines = [
-      `Заказ #${task.id}`,
-      `Тип: ${task.order_type === 'income' ? 'приход' : 'расход'}`,
-      ...(task.external_number ? [`Номер 1С: ${task.external_number}`] : []),
-      `Куда: ${task.title}`,
-      `Комментарий: ${task.description?.trim() || '—'}`,
-      `Статус: ${column.title}`,
-      `Ответственный: ${task.responsible_name || '—'}`
-    ];
-    const sent = await this.telegram.sendMessage(chatId, lines.join('\n'));
+    const sent = await this.telegram.sendMessage(chatId, this.telegramTaskText(task, column));
     const sentChatId = String(sent.chat.id);
+    const oldChatId = task.telegram_chat_id;
+    const oldMessageId = task.telegram_message_id;
+    const oldMessageWasBotSent = task.telegram_message_sent_by_bot;
     await this.db<TaskRow>('tasks').where({ id: task.id }).update({
       telegram_chat_id: sentChatId,
       telegram_message_id: sent.message_id,
       telegram_message_sent_by_bot: true,
       updated_at: this.db.fn.now()
     });
+    if (!oldMessageWasBotSent && oldChatId && oldMessageId) {
+      await this.clearTelegramReaction(oldChatId, oldMessageId);
+    }
     await this.applyTelegramReaction(sentChatId, sent.message_id, column.slug);
+  }
+
+  private telegramTaskText(task: TaskRow, column: Pick<ColumnRow, 'slug' | 'title'>) {
+    const typeLabel = task.order_type === 'income'
+      ? 'приход'
+      : task.order_type === 'store'
+        ? 'оставить на магазине'
+        : 'расход';
+    return [
+      `Заказ #${task.id}`,
+      `Тип: ${typeLabel}`,
+      ...(task.external_number ? [`Номер 1С: ${task.external_number}`] : []),
+      `Куда: ${task.title}`,
+      `Комментарий: ${task.description?.trim() || '—'}`,
+      `Статус: ${column.title}`,
+      `Ответственный: ${task.responsible_name || '—'}`
+    ].join('\n');
+  }
+
+  private async syncTelegramAfterEdit(task: TaskRow, column: ColumnRow) {
+    if (!task.telegram_chat_id || !task.telegram_message_id) {
+      try {
+        await this.publishTaskToTelegram(task.id, column);
+      } catch (error) {
+        console.error(`Could not publish edited order ${task.id} to Telegram: ${this.errorMessage(error)}`);
+      }
+      return;
+    }
+
+    if (task.telegram_message_sent_by_bot) {
+      try {
+        await this.telegram.editMessageText(task.telegram_chat_id, task.telegram_message_id, this.telegramTaskText(task, column));
+      } catch (error) {
+        console.error(`Could not edit Telegram message for order ${task.id}: ${this.errorMessage(error)}`);
+      }
+      return;
+    }
+
+    const sourceChatId = task.telegram_source_chat_id ?? task.telegram_chat_id;
+    const sourceMessageId = task.telegram_source_message_id ?? task.telegram_message_id;
+    try {
+      const sent = await this.telegram.sendMessage(sourceChatId, this.telegramTaskText(task, column), sourceMessageId);
+      await this.db<TaskRow>('tasks').where({ id: task.id }).update({
+        telegram_chat_id: String(sent.chat.id),
+        telegram_message_id: sent.message_id,
+        telegram_message_sent_by_bot: true,
+        updated_at: this.db.fn.now()
+      });
+      await this.clearTelegramReaction(sourceChatId, sourceMessageId);
+      await this.applyTelegramReaction(String(sent.chat.id), sent.message_id, column.slug);
+    } catch (error) {
+      console.error(`Could not send Telegram edit feedback for order ${task.id}: ${this.errorMessage(error)}`);
+    }
+  }
+
+  private async syncTelegramAfterDelete(task: TaskRow) {
+    const sourceChatId = task.telegram_source_chat_id ?? (!task.telegram_message_sent_by_bot ? task.telegram_chat_id : null);
+    const sourceMessageId = task.telegram_source_message_id ?? (!task.telegram_message_sent_by_bot ? task.telegram_message_id : null);
+
+    if (task.telegram_message_sent_by_bot && task.telegram_chat_id && task.telegram_message_id) {
+      try {
+        await this.telegram.deleteMessage(task.telegram_chat_id, task.telegram_message_id);
+      } catch (error) {
+        console.error(`Could not delete Telegram message for order ${task.id}: ${this.errorMessage(error)}`);
+        try {
+          await this.telegram.editMessageText(task.telegram_chat_id, task.telegram_message_id, `Заказ #${task.id} удалён из канбана.`);
+        } catch (editError) {
+          console.error(`Could not mark Telegram message for deleted order ${task.id}: ${this.errorMessage(editError)}`);
+        }
+      }
+    }
+
+    if (sourceChatId && sourceMessageId) {
+      await this.clearTelegramReaction(sourceChatId, sourceMessageId);
+      try {
+        await this.telegram.sendMessage(sourceChatId, `Заказ #${task.id} удалён из канбана.`, sourceMessageId);
+      } catch (error) {
+        console.error(`Could not send Telegram delete feedback for order ${task.id}: ${this.errorMessage(error)}`);
+      }
+    }
+  }
+
+  private async clearTelegramReaction(chatId: string, messageId: number) {
+    try {
+      await this.telegram.clearMessageReaction(chatId, messageId);
+    } catch (error) {
+      console.error(`Could not clear Telegram reaction from message ${messageId}: ${this.errorMessage(error)}`);
+    }
   }
 
   private roleUpdateForStage(slug: string, user: SiteUser) {

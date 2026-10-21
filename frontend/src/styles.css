@@ -212,9 +212,10 @@ select {
 }
 
 .order-type-tabs {
-  display: flex;
-  width: fit-content;
-  gap: 4px;
+  display: grid;
+  width: min(100%, 390px);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
   margin: 0 0 12px;
   border: 1px solid #d7dde6;
   border-radius: 8px;
@@ -223,12 +224,15 @@ select {
 }
 
 .order-type-tabs button {
-  min-width: 104px;
+  min-width: 0;
   height: 36px;
   border: 0;
   background: transparent;
   color: #667085;
   font-weight: 750;
+  padding: 0 6px;
+  white-space: nowrap;
+  font-size: 13px;
 }
 
 .order-type-tabs button.active {
