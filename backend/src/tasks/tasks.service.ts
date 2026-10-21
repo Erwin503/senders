@@ -327,16 +327,14 @@ export class TasksService {
   }
 
   private telegramTaskText(task: TaskRow, column: Pick<ColumnRow, 'slug' | 'title'>) {
-    const typeLabel = task.order_type === 'income'
-      ? 'приход'
+    const actionLabel = task.order_type === 'income'
+      ? 'Забираем'
       : task.order_type === 'store'
-        ? 'оставить на магазине'
-        : 'расход';
+        ? 'Оставить на магазине'
+        : 'Везём';
     return [
-      `Заказ #${task.id}`,
-      `Тип: ${typeLabel}`,
-      ...(task.external_number ? [`Номер 1С: ${task.external_number}`] : []),
-      `Куда: ${task.title}`,
+      task.title,
+      actionLabel,
       `Комментарий: ${task.description?.trim() || '—'}`,
       `Статус: ${column.title}`,
       `Ответственный: ${task.responsible_name || '—'}`
