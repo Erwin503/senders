@@ -43,6 +43,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   private lastIdleLogAt = 0;
   private refreshTimer?: ReturnType<typeof setInterval>;
   private refreshInProgress = false;
+  private taskMaintenanceInProgress = false;
   private readonly logFile = resolve(
     process.cwd(),
     process.env.TELEGRAM_LOG_FILE ?? 'logs/telegram-bot.log'
@@ -61,8 +62,8 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       this.writeLog('idle', { reason: 'TELEGRAM_BOT_TOKEN is not configured' });
       return;
     }
-    this.refreshTimer = setInterval(() => void this.checkDailyRefresh(), 60_000);
-    void this.checkDailyRefresh();
+    this.refreshTimer = setInterval(() => void this.checkTaskMaintenance(), 60_000);
+    void this.checkTaskMaintenance();
     void this.poll();
   }
 
@@ -93,6 +94,20 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       this.writeLog('daily_order_refresh_failed', { date, error: this.errorMessage(error) });
     } finally {
       this.refreshInProgress = false;
+    }
+  }
+
+  private async checkTaskMaintenance() {
+    if (this.stopped || this.taskMaintenanceInProgress || !this.telegram.configured) return;
+    this.taskMaintenanceInProgress = true;
+    try {
+      await this.checkDailyRefresh();
+      const activated = await this.tasks.activateScheduledOrders();
+      if (activated) this.writeLog('scheduled_orders_activated', { count: activated });
+    } catch (error) {
+      this.writeLog('scheduled_order_activation_failed', { error: this.errorMessage(error) });
+    } finally {
+      this.taskMaintenanceInProgress = false;
     }
   }
 

@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreateTaskDto {
   @IsOptional()
@@ -23,6 +23,10 @@ export class CreateTaskDto {
   @IsInt()
   @Min(1)
   columnId?: number;
+
+  @IsOptional()
+  @IsDateString()
+  activeAt?: string;
 }
 
 export class UpdateTaskDto {

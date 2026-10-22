@@ -133,6 +133,14 @@ select {
     box-shadow 140ms ease;
 }
 
+.activation-field {
+  display: grid;
+  gap: 5px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .column-composer input:focus,
 .column-composer textarea:focus,
 .edit-form input:focus,
@@ -305,6 +313,17 @@ select {
 
 .task-card:hover {
   border-color: #c8d0da;
+}
+
+.task-card.scheduled {
+  border-style: dashed;
+  background: #f9fafb;
+}
+
+.scheduled-label {
+  color: #9a6700 !important;
+  font-size: 12px !important;
+  font-weight: 750;
 }
 
 .task-content h3 {
@@ -559,6 +578,11 @@ select {
     background: #ffffff;
     color: #18202d;
     font-weight: 700;
+  }
+
+  .mobile-move-control select:disabled {
+    background: #f0f2f5;
+    color: #8a94a6;
   }
 
   .people-list div {

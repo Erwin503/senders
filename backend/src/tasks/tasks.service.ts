@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { KNEX } from '../database/database.module';
 import type { Db } from '../database/knex.type';
 import { CreateColumnDto, CreateTaskDto, MoveTaskDto, UpdateColumnDto, UpdateTaskDto } from './dto';
@@ -36,6 +36,7 @@ type TaskRow = {
   telegram_source_chat_id: string | null;
   telegram_source_message_id: number | null;
   ready_at: Date | string | null;
+  active_at: Date | string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -64,6 +65,8 @@ export class TasksService {
         tasks: tasks
           .filter((task) => task.column_id === column.id)
           .map((task) => this.serializeTask(task))
+          .sort((left, right) => Number(left.isActive === false) - Number(right.isActive === false)
+            || left.position - right.position)
       }))
     };
   }
@@ -126,6 +129,7 @@ export class TasksService {
       responsible_id: user.id,
       responsible_name: user.name,
       ready_at: column.slug === 'ready' ? this.db.fn.now() : null,
+      active_at: dto.activeAt ? new Date(dto.activeAt) : null,
       telegram_chat_id: source?.chatId ?? null,
       telegram_message_id: source?.messageId ?? null,
       telegram_message_text: source?.text ?? null,
@@ -134,7 +138,7 @@ export class TasksService {
 
     if (source) {
       await this.applyTelegramReaction(source.chatId, source.messageId, 'created');
-    } else {
+    } else if (this.isActiveAt(dto.activeAt)) {
       try {
         await this.publishTaskToTelegram(id, column);
       } catch (error) {
@@ -217,6 +221,9 @@ export class TasksService {
       if (task.order_type !== column.order_type) {
         throw new NotFoundException('Orders cannot be moved between income and expense boards');
       }
+      if (task.active_at && new Date(task.active_at).getTime() > Date.now()) {
+        throw new BadRequestException('This order is scheduled and cannot be moved before its activation time');
+      }
 
       const targetTasks = await trx<TaskRow>('tasks')
         .where({ column_id: dto.columnId })
@@ -248,8 +255,8 @@ export class TasksService {
       return { moved, changedStage: task.column_id !== column.id, stage: column.slug };
     });
 
-    if (changedStage && moved?.telegram_chat_id && moved.telegram_message_id) {
-      await this.applyTelegramReaction(moved.telegram_chat_id, moved.telegram_message_id, stage);
+    if (changedStage && moved) {
+      await this.syncTelegramAfterMove(moved, stage);
     }
     return moved ? this.serializeTask(moved) : moved;
   }
@@ -281,6 +288,7 @@ export class TasksService {
     const activeTasks = await this.db<TaskRow>('tasks')
       .join('columns', 'tasks.column_id', 'columns.id')
       .whereNotIn('columns.slug', ['ready', 'stocked'])
+      .where((query) => query.whereNull('tasks.active_at').orWhere('tasks.active_at', '<=', this.db.fn.now()))
       .select('tasks.*', 'columns.slug as stage_slug', 'columns.title as stage_title') as Array<TaskRow & { stage_slug: string; stage_title: string }>;
 
     for (const task of activeTasks) {
@@ -293,13 +301,35 @@ export class TasksService {
     return true;
   }
 
+  async activateScheduledOrders() {
+    if (!this.telegram.configured || !await this.settings.getGroupId()) return 0;
+    const dueTasks = await this.db<TaskRow>('tasks')
+      .join('columns', 'tasks.column_id', 'columns.id')
+      .whereNotNull('tasks.active_at')
+      .where('tasks.active_at', '<=', this.db.fn.now())
+      .whereNull('tasks.telegram_message_id')
+      .whereNotIn('columns.slug', ['ready', 'stocked'])
+      .select('tasks.*', 'columns.slug as stage_slug', 'columns.title as stage_title') as Array<TaskRow & { stage_slug: string; stage_title: string }>;
+
+    let published = 0;
+    for (const task of dueTasks) {
+      try {
+        if (await this.publishTaskToTelegram(task.id, { slug: task.stage_slug, title: task.stage_title })) published += 1;
+      } catch (error) {
+        console.error(`Could not activate Telegram message for order ${task.id}: ${this.errorMessage(error)}`);
+      }
+    }
+    return published;
+  }
+
   private async publishTaskToTelegram(taskId: number, column: Pick<ColumnRow, 'slug' | 'title'>, groupId?: string) {
-    if (!this.telegram.configured) return;
+    if (!this.telegram.configured) return false;
     const chatId = groupId ?? await this.settings.getGroupId();
-    if (!chatId) return;
+    if (!chatId) return false;
 
     const task = await this.db<TaskRow>('tasks').where({ id: taskId }).first();
-    if (!task) return;
+    if (!task) return false;
+    if (task.active_at && new Date(task.active_at).getTime() > Date.now()) return false;
 
     if (task.telegram_message_sent_by_bot && task.telegram_chat_id && task.telegram_message_id) {
       try {
@@ -324,17 +354,16 @@ export class TasksService {
       await this.clearTelegramReaction(oldChatId, oldMessageId);
     }
     await this.applyTelegramReaction(sentChatId, sent.message_id, column.slug);
+    return true;
   }
 
   private telegramTaskText(task: TaskRow, column: Pick<ColumnRow, 'slug' | 'title'>) {
     const actionLabel = task.order_type === 'income'
       ? 'Забираем'
-      : task.order_type === 'store'
-        ? 'Оставить на магазине'
-        : 'Везём';
+      : 'Везём';
     return [
       task.title,
-      actionLabel,
+      ...(task.order_type === 'store' ? [] : [actionLabel]),
       `Комментарий: ${task.description?.trim() || '—'}`,
       `Статус: ${column.title}`,
       `Ответственный: ${task.responsible_name || '—'}`
@@ -342,6 +371,7 @@ export class TasksService {
   }
 
   private async syncTelegramAfterEdit(task: TaskRow, column: ColumnRow) {
+    if (task.active_at && new Date(task.active_at).getTime() > Date.now()) return;
     if (!task.telegram_chat_id || !task.telegram_message_id) {
       try {
         await this.publishTaskToTelegram(task.id, column);
@@ -431,6 +461,7 @@ export class TasksService {
   }
 
   private serializeTask(task: TaskRow) {
+    const activeAt = task.active_at;
     return {
       id: task.id,
       columnId: task.column_id,
@@ -448,9 +479,64 @@ export class TasksService {
       driver: task.driver_id ? { id: task.driver_id, name: task.driver_name ?? task.driver_id } : null,
       telegramMessageText: task.telegram_message_text,
       readyAt: task.ready_at,
+      activeAt,
+      isActive: !activeAt || new Date(activeAt).getTime() <= Date.now(),
       createdAt: task.created_at,
       updatedAt: task.updated_at
     };
+  }
+
+  private isActiveAt(activeAt?: string) {
+    return !activeAt || new Date(activeAt).getTime() <= Date.now();
+  }
+
+  private isFinalStage(orderType: TaskRow['order_type'], stage: string) {
+    return orderType === 'income' ? stage === 'stocked' : stage === 'ready';
+  }
+
+  private async syncTelegramAfterMove(task: TaskRow, stage: string) {
+    if (this.isFinalStage(task.order_type, stage)) {
+      if (task.telegram_message_sent_by_bot && task.telegram_chat_id && task.telegram_message_id) {
+        try {
+          await this.telegram.deleteMessage(task.telegram_chat_id, task.telegram_message_id);
+        } catch (error) {
+          console.error(`Could not delete completed Telegram message for order ${task.id}: ${this.errorMessage(error)}`);
+          try {
+            await this.telegram.editMessageText(task.telegram_chat_id, task.telegram_message_id, `Заказ «${task.title}» завершён.`);
+          } catch (editError) {
+            console.error(`Could not mark completed Telegram message for order ${task.id}: ${this.errorMessage(editError)}`);
+          }
+        }
+
+        const sourceChatId = task.telegram_source_chat_id;
+        const sourceMessageId = task.telegram_source_message_id;
+        await this.db<TaskRow>('tasks').where({ id: task.id }).update(sourceChatId && sourceMessageId
+          ? {
+              telegram_chat_id: sourceChatId,
+              telegram_message_id: sourceMessageId,
+              telegram_message_sent_by_bot: false,
+              updated_at: this.db.fn.now()
+            }
+          : {
+              telegram_chat_id: null,
+              telegram_message_id: null,
+              telegram_message_sent_by_bot: false,
+              updated_at: this.db.fn.now()
+            });
+
+        if (sourceChatId && sourceMessageId) await this.applyTelegramReaction(sourceChatId, sourceMessageId, stage);
+      } else if (task.telegram_chat_id && task.telegram_message_id) {
+        await this.applyTelegramReaction(task.telegram_chat_id, task.telegram_message_id, stage);
+      }
+      return;
+    }
+
+    if (task.telegram_chat_id && task.telegram_message_id) {
+      await this.applyTelegramReaction(task.telegram_chat_id, task.telegram_message_id, stage);
+      return;
+    }
+    const column = await this.db<ColumnRow>('columns').where({ id: task.column_id }).first();
+    if (column) await this.publishTaskToTelegram(task.id, column);
   }
 
   private async applyTelegramReaction(chatId: string, messageId: number, stage: string) {

@@ -8,6 +8,8 @@ type Task = {
   orderType: 'income' | 'expense' | 'store';
   title: string;
   description: string | null;
+  activeAt: string | null;
+  isActive: boolean;
   position: number;
   responsible: Person | null;
   storekeeper: Person | null;
@@ -23,6 +25,7 @@ const orderType = ref<'income' | 'expense' | 'store'>('expense');
 const selectedColumnId = ref<number | null>(null);
 const title = ref('');
 const description = ref('');
+const activeAtInput = ref('');
 const siteName = ref('');
 const loading = ref(true);
 const error = ref('');
@@ -51,9 +54,21 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 function visibleTasks(column: Column) {
-  if (column.slug !== 'ready') return column.tasks;
-  if (isAfterReadyCutoff.value) return [];
-  return column.tasks.filter((task) => isToday(task.readyAt));
+  let tasks = column.tasks;
+  if (column.slug === 'ready') {
+    if (isAfterReadyCutoff.value) return [];
+    tasks = tasks.filter((task) => isToday(task.readyAt));
+  }
+  return [...tasks].sort((left, right) => Number(!isTaskActive(left)) - Number(!isTaskActive(right))
+    || left.position - right.position);
+}
+
+function isTaskActive(task: Task) {
+  return !task.activeAt || new Date(task.activeAt).getTime() <= now.value.getTime();
+}
+
+function formatActivationTime(value: string) {
+  return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
 }
 
 function isToday(value: string | Date | null) {
@@ -125,11 +140,13 @@ async function createTask() {
         title: cleanTitle,
         description: description.value.trim() || undefined,
         orderType: orderType.value,
-        columnId: firstColumnId.value
+        columnId: firstColumnId.value,
+        activeAt: activeAtInput.value ? new Date(activeAtInput.value).toISOString() : undefined
       })
     });
     title.value = '';
     description.value = '';
+    activeAtInput.value = '';
     await loadBoard();
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : 'Не удалось создать заказ';
@@ -163,7 +180,7 @@ async function saveEdit(taskId: number) {
 }
 
 async function moveTask(columnId: number, position: number) {
-  if (!draggedTask.value) return;
+  if (!draggedTask.value || !isTaskActive(draggedTask.value)) return;
   try {
     await api(`/tasks/${draggedTask.value.id}/move`, {
       method: 'PATCH',
@@ -178,7 +195,7 @@ async function moveTask(columnId: number, position: number) {
 }
 
 async function moveTaskTo(task: Task, columnId: number) {
-  if (task.columnId === columnId) return;
+  if (task.columnId === columnId || !isTaskActive(task)) return;
   const targetColumn = columns.value.find((column) => column.id === columnId);
   if (!targetColumn) return;
   try {
@@ -276,6 +293,10 @@ onBeforeUnmount(() => {
         <form v-if="column.id === firstColumnId" class="column-composer" @submit.prevent="createTask">
           <input v-model="title" maxlength="160" placeholder="Новый заказ" />
           <textarea v-model="description" maxlength="1000" placeholder="Комментарий к заказу (необязательно)"></textarea>
+          <label class="activation-field">
+            <span>Активировать с (необязательно)</span>
+            <input v-model="activeAtInput" type="datetime-local" />
+          </label>
           <button class="composer-submit" type="submit">Добавить</button>
         </form>
 
@@ -284,8 +305,9 @@ onBeforeUnmount(() => {
             v-for="(task, index) in visibleTasks(column)"
             :key="task.id"
             class="task-card"
-            draggable="true"
-            @dragstart="draggedTask = task"
+            :class="{ scheduled: !isTaskActive(task) }"
+            :draggable="isTaskActive(task)"
+            @dragstart="draggedTask = isTaskActive(task) ? task : null"
             @drop.stop="moveTask(column.id, index)"
             @dragover.prevent
           >
@@ -304,6 +326,7 @@ onBeforeUnmount(() => {
                   <time class="task-date" :datetime="task.createdAt">{{ formatOrderDate(task.createdAt) }}</time>
                 </div>
                 <p v-if="task.description">{{ task.description }}</p>
+                <p v-if="!isTaskActive(task) && task.activeAt" class="scheduled-label">Запланирован на {{ formatActivationTime(task.activeAt) }}</p>
                 <dl class="people-list">
                   <div v-if="task.responsible"><dt>Ответственный</dt><dd>{{ task.responsible.name }}</dd></div>
                   <div v-if="task.storekeeper"><dt>Кладовщик</dt><dd>{{ task.storekeeper.name }}</dd></div>
@@ -320,7 +343,7 @@ onBeforeUnmount(() => {
               </div>
               <label class="mobile-move-control">
                 <span>Стадия</span>
-                <select :value="column.id" @change="moveTaskTo(task, Number(($event.target as HTMLSelectElement).value))">
+                <select :value="column.id" :disabled="!isTaskActive(task)" @change="moveTaskTo(task, Number(($event.target as HTMLSelectElement).value))">
                   <option v-for="stage in visibleColumns" :key="stage.id" :value="stage.id">{{ stage.title }}</option>
                 </select>
               </label>
