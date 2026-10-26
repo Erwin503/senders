@@ -340,6 +340,49 @@ select {
   margin: 0 0 8px;
 }
 
+.workspace-layout { display: grid; grid-template-columns: 188px minmax(0, 1fr); gap: 18px; align-items: start; }
+.primary-nav { display: grid; align-content: start; gap: 4px; border-right: 1px solid #e1e5eb; padding-right: 12px; }
+.primary-nav button { min-height: 42px; border: 0; background: transparent; color: #667085; padding: 0 12px; font-size: 14px; font-weight: 750; text-align: left; }
+.primary-nav button.active { background: #eaf6ff; color: #0877c9; }
+.work-content { min-width: 0; }
+.routes-workspace, .clients-workspace { display: grid; gap: 14px; min-width: 0; }
+.route-tabs { display: flex; gap: 4px; border-bottom: 1px solid #d7dde6; }
+.route-tabs button { min-height: 42px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: #667085; padding: 0 14px; font-size: 14px; font-weight: 750; }
+.route-tabs button.active { border-bottom-color: #1687d9; color: #0877c9; }
+.route-import { display: grid; gap: 12px; }
+.route-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.route-page-heading h2 { color: #18202d; font-size: 20px; }
+.route-paste { width: 100%; min-height: 130px; border: 1px solid #d7dde6; background: #fff; color: #18202d; padding: 11px 12px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; line-height: 1.5; resize: vertical; }
+.route-import-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.route-import-actions .primary-action, .new-district-form .primary-action { min-width: 180px; padding: 0 14px; }
+.import-status { color: #475467; font-size: 13px; font-weight: 700; }
+.route-sheet { display: grid; gap: 14px; padding-top: 16px; }
+.route-sheet-block h3 { margin: 14px 0 6px; border-bottom: 1px solid #d7dde6; padding-bottom: 6px; color: #0877c9; font-size: 15px; }
+.route-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
+.route-table th, .route-table td { border: 1px solid #d7dde6; padding: 8px 10px; color: #344054; font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; text-align: left; vertical-align: top; white-space: pre-wrap; }
+.route-table th { background: #f0f5f9; color: #475467; font-weight: 800; }
+.route-table th:first-child, .route-table td:first-child { width: 46%; }
+.route-total { display: flex; justify-content: flex-end; gap: 8px; border-top: 2px solid #344054; padding: 12px 4px; color: #344054; font-size: 14px; }
+.clients-heading { margin-bottom: 4px; }
+.new-district-form { display: flex; gap: 8px; }
+.new-district-form input, .route-client-row input, .route-client-row select { min-width: 0; height: 38px; border: 1px solid #d7dde6; background: #fff; color: #344054; padding: 0 9px; font-size: 13px; }
+.new-district-form input { width: 180px; }
+.client-district { border: 1px solid #e1e5eb; border-radius: 8px; background: #fff; padding: 12px; }
+.district-heading { display: flex; align-items: center; gap: 8px; min-height: 34px; border-bottom: 1px solid #e7ebf0; padding-bottom: 8px; }
+.district-heading h3 { flex: 1; color: #18202d; font-size: 15px; }
+.district-count { color: #7a8493; font-size: 12px; font-variant-numeric: tabular-nums; }
+.drag-handle { display: inline-grid; width: 30px; height: 32px; place-items: center; border: 1px solid #e1e5eb; background: #f8fafc; color: #7a8493; cursor: grab; font-size: 17px; }
+.circle-group h4 { margin: 12px 0 4px; color: #667085; font-size: 12px; font-weight: 800; }
+.client-list { display: grid; }
+.route-client-row { display: grid; grid-template-columns: 32px minmax(150px, 1fr) minmax(120px, 180px) minmax(120px, 160px) 70px; align-items: center; gap: 8px; border-bottom: 1px solid #edf0f4; padding: 7px 0; }
+.client-name { display: grid; gap: 2px; min-width: 0; }
+.client-name strong { color: #344054; font-size: 13px; overflow-wrap: anywhere; }
+.client-name span { color: #98a2b3; font-size: 10px; }
+.client-order-buttons { display: flex; justify-content: flex-end; gap: 4px; }
+.client-order-buttons button { width: 30px; height: 34px; border: 1px solid #e1e5eb; background: #fff; color: #475467; font-size: 17px; }
+.client-order-buttons button:disabled { opacity: 0.35; cursor: default; }
+.unassigned-district { border-style: dashed; }
+
 .template-plus {
   display: grid;
   width: 40px;
@@ -709,6 +752,38 @@ select {
   .people-list div {
     grid-template-columns: 88px minmax(0, 1fr);
   }
+}
+
+@media (max-width: 760px) {
+  .workspace-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .primary-nav { display: flex; border-right: 0; border-bottom: 1px solid #d7dde6; padding: 0 0 6px; }
+  .primary-nav button { flex: 1; min-height: 40px; padding: 0 8px; font-size: 13px; text-align: center; }
+  .route-page-heading.clients-heading { align-items: stretch; flex-direction: column; }
+  .new-district-form { width: 100%; }
+  .new-district-form input { flex: 1; width: auto; }
+  .new-district-form .primary-action { min-width: auto; }
+  .route-client-row { grid-template-columns: 30px minmax(0, 1fr) 66px; gap: 6px; }
+  .route-client-row .client-name { grid-column: 2 / 4; }
+  .route-client-row select, .route-client-row input { grid-column: 2 / 3; width: 100%; }
+  .route-client-row .client-order-buttons { grid-column: 3; grid-row: 2 / span 2; flex-direction: column; }
+  .route-client-row .client-order-buttons button { width: 34px; height: 32px; }
+  .route-import-actions { align-items: stretch; flex-direction: column; }
+  .route-import-actions .primary-action { width: 100%; }
+  .route-tabs button { flex: 1; padding: 0 6px; font-size: 13px; }
+  .route-table th, .route-table td { padding: 7px; font-size: 12px; }
+}
+
+@media print {
+  body, .app-shell { background: #fff; }
+  .app-shell { width: 100%; padding: 0; }
+  .topbar, .primary-nav, .route-tabs, .route-import, .clients-workspace, .route-page-heading button { display: none !important; }
+  .workspace-layout { display: block; }
+  .work-content, .routes-workspace { display: block; }
+  .route-sheet { display: block; padding: 0; }
+  .route-sheet-block { break-inside: avoid; }
+  .route-sheet-block h3 { color: #000; }
+  .route-table th, .route-table td { border-color: #555; color: #000; }
+  .route-total { color: #000; }
 }
 
 .modal-backdrop {

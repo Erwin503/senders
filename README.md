@@ -54,4 +54,10 @@ Configure `INTEGRATION_API_KEY` in the backend environment for trusted 1C reques
 - `PATCH /api/tasks/:id/move` moves a task to a column and position (authenticated)
 - `DELETE /api/tasks/:id` deletes a task (authenticated)
 - `GET/POST/PATCH/DELETE /api/templates` manages order templates (admin/manager)
+- `POST /api/route/import` imports a tab-separated list of counterparties and returns a route sheet grouped by district
+- `GET /api/route/clients` returns the client directory and district order
+- `POST /api/route/districts` creates a district
+- `PATCH /api/route/districts/reorder` saves district order
+- `PATCH /api/route/clients/:id` changes the client's district and circle type
+- `PATCH /api/route/clients/reorder` saves client order within a district
 

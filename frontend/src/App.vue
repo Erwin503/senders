@@ -13,6 +13,18 @@ type OrderTemplate = {
   description: string | null;
   activeAt: string | null;
 };
+type RouteClient = {
+  id: number;
+  name: string;
+  districtId: number | null;
+  districtName: string | null;
+  districtPosition: number | null;
+  circleType: string | null;
+  position: number;
+  comment?: string;
+};
+type RouteDistrict = { id: number; name: string; position: number; clients: RouteClient[] };
+type RouteSheetBlock = { id: number | null; name: string; position: number; clients: RouteClient[] };
 type Task = {
   id: number;
   columnId: number;
@@ -57,6 +69,17 @@ const templateDescription = ref('');
 const templateActiveAt = ref('');
 const usersOpen = ref(false);
 const users = ref<AuthUser[]>([]);
+const activePage = ref<'kanban' | 'routes'>('kanban');
+const routeTab = ref<'sheets' | 'clients'>('sheets');
+const routePaste = ref('');
+const routeImportStatus = ref('');
+const routeSheet = ref<RouteSheetBlock[] | null>(null);
+const routeSheetTotal = ref(0);
+const routeDistricts = ref<RouteDistrict[]>([]);
+const unassignedClients = ref<RouteClient[]>([]);
+const newDistrictName = ref('');
+const draggedDistrictId = ref<number | null>(null);
+const draggedClientId = ref<number | null>(null);
 const draggedTask = ref<Task | null>(null);
 const editingTaskId = ref<number | null>(null);
 const editTitle = ref('');
@@ -155,6 +178,11 @@ async function loadBoard() {
   } finally {
     loading.value = false;
   }
+}
+
+function refreshCurrentPage() {
+  if (activePage.value === 'kanban') void loadBoard();
+  else if (routeTab.value === 'clients') void loadRouteClients();
 }
 
 function selectOrderType(value: 'income' | 'expense' | 'store') {
@@ -303,6 +331,183 @@ async function changeRole(user: AuthUser, role: UserRole) {
   }
 }
 
+async function selectMainPage(page: 'kanban' | 'routes') {
+  activePage.value = page;
+  if (page === 'routes' && routeTab.value === 'clients') await loadRouteClients();
+}
+
+async function selectRouteTab(tab: 'sheets' | 'clients') {
+  routeTab.value = tab;
+  if (tab === 'clients') await loadRouteClients();
+}
+
+function parseRoutePaste() {
+  const rows = routePaste.value
+    .split(/\r?\n/)
+    .map((line) => {
+      const cells = line.split('\t');
+      return { name: cells.shift()?.replace(/^\uFEFF/, '').trim() ?? '', comment: cells.join('\t').trim() };
+    })
+    .filter((row) => row.name);
+  const header = rows[0]?.name.toLocaleLowerCase('ru-RU').replace(/\s+/g, ' ');
+  if (['контрагент', 'клиент', 'наименование контрагента', 'название контрагента'].includes(header ?? '')) rows.shift();
+  return rows;
+}
+
+async function generateRouteSheet() {
+  const entries = parseRoutePaste();
+  if (!entries.length) {
+    routeImportStatus.value = 'Вставьте список контрагентов';
+    return;
+  }
+  try {
+    const result = await api<{
+      submittedCount: number;
+      uniqueCount: number;
+      duplicateCount: number;
+      addedCount: number;
+      existingCount: number;
+      districts: RouteSheetBlock[];
+    }>('/route/import', { method: 'POST', body: JSON.stringify({ entries }) });
+    routeSheet.value = result.districts;
+    routeSheetTotal.value = result.uniqueCount;
+    routeImportStatus.value = `Новых: ${result.addedCount} · Уже были: ${result.existingCount} · Повторов в списке: ${result.duplicateCount}`;
+    await loadRouteClients();
+  } catch (caught) {
+    routeImportStatus.value = caught instanceof Error ? caught.message : 'Не удалось обработать список';
+  }
+}
+
+function printRouteSheet() {
+  window.print();
+}
+
+async function loadRouteClients() {
+  try {
+    const result = await api<{ districts: RouteDistrict[]; unassigned: RouteClient[] }>('/route/clients');
+    routeDistricts.value = result.districts;
+    unassignedClients.value = result.unassigned;
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : 'Не удалось загрузить клиентов';
+  }
+}
+
+function clientsForDistrict(districtId: number | null) {
+  return districtId === null
+    ? unassignedClients.value
+    : routeDistricts.value.find((district) => district.id === districtId)?.clients ?? [];
+}
+
+function circleGroups(clients: RouteClient[]) {
+  const groups = new Map<string, RouteClient[]>();
+  for (const client of clients) {
+    const name = client.circleType?.trim() || 'Вид круга не указан';
+    groups.set(name, [...(groups.get(name) ?? []), client]);
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) => {
+      if (left === 'Вид круга не указан') return 1;
+      if (right === 'Вид круга не указан') return -1;
+      return left.localeCompare(right, 'ru');
+    })
+    .map(([name, items]) => ({ name, clients: items.sort((a, b) => a.position - b.position) }));
+}
+
+async function createDistrict() {
+  if (!newDistrictName.value.trim()) return;
+  try {
+    await api('/route/districts', { method: 'POST', body: JSON.stringify({ name: newDistrictName.value.trim() }) });
+    newDistrictName.value = '';
+    await loadRouteClients();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : 'Не удалось добавить район';
+  }
+}
+
+async function updateRouteClient(client: RouteClient, changes: { districtId?: number | null; circleType?: string | null }) {
+  try {
+    await api(`/route/clients/${client.id}`, { method: 'PATCH', body: JSON.stringify(changes) });
+    await loadRouteClients();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : 'Не удалось обновить клиента';
+    await loadRouteClients();
+  }
+}
+
+async function saveClientOrder(districtId: number | null, orderedIds: number[]) {
+  try {
+    await api('/route/clients/reorder', {
+      method: 'PATCH',
+      body: JSON.stringify({ districtId, clientIds: orderedIds })
+    });
+    await loadRouteClients();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : 'Не удалось сохранить порядок клиентов';
+    await loadRouteClients();
+  } finally {
+    draggedClientId.value = null;
+  }
+}
+
+function reorderedBefore<T extends { id: number }>(items: T[], movedId: number, targetId: number) {
+  const next = [...items];
+  const from = next.findIndex((item) => item.id === movedId);
+  const to = next.findIndex((item) => item.id === targetId);
+  if (from < 0 || to < 0 || from === to) return null;
+  const [moved] = next.splice(from, 1);
+  next.splice(next.findIndex((item) => item.id === targetId), 0, moved);
+  return next;
+}
+
+async function dropClientBefore(districtId: number | null, circleClients: RouteClient[], targetId: number) {
+  if (draggedClientId.value === null || draggedClientId.value === targetId) return;
+  const changedGroup = reorderedBefore(circleClients, draggedClientId.value, targetId);
+  if (!changedGroup) return;
+  const groupIds = new Set(circleClients.map((client) => client.id));
+  let groupIndex = 0;
+  const next = clientsForDistrict(districtId).map((client) => groupIds.has(client.id) ? changedGroup[groupIndex++] : client);
+  await saveClientOrder(districtId, next.map((item) => item.id));
+}
+
+async function moveClientBy(districtId: number | null, circleClients: RouteClient[], clientId: number, direction: -1 | 1) {
+  const index = circleClients.findIndex((client) => client.id === clientId);
+  const targetIndex = index + direction;
+  if (index < 0 || targetIndex < 0 || targetIndex >= circleClients.length) return;
+  const nextGroup = [...circleClients];
+  [nextGroup[index], nextGroup[targetIndex]] = [nextGroup[targetIndex], nextGroup[index]];
+  const groupIds = new Set(circleClients.map((client) => client.id));
+  let groupIndex = 0;
+  const next = clientsForDistrict(districtId).map((client) => groupIds.has(client.id) ? nextGroup[groupIndex++] : client);
+  await saveClientOrder(districtId, next.map((item) => item.id));
+}
+
+async function saveDistrictOrder(orderedIds: number[]) {
+  try {
+    await api('/route/districts/reorder', { method: 'PATCH', body: JSON.stringify({ districtIds: orderedIds }) });
+    await loadRouteClients();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : 'Не удалось сохранить порядок районов';
+    await loadRouteClients();
+  } finally {
+    draggedDistrictId.value = null;
+  }
+}
+
+async function dropDistrictBefore(targetId: number) {
+  if (draggedDistrictId.value === null || draggedDistrictId.value === targetId) return;
+  const next = reorderedBefore(routeDistricts.value, draggedDistrictId.value, targetId);
+  if (next) await saveDistrictOrder(next.map((district) => district.id));
+}
+
+async function moveDistrictBy(districtId: number, direction: -1 | 1) {
+  const index = routeDistricts.value.findIndex((district) => district.id === districtId);
+  const targetIndex = index + direction;
+  if (index < 0 || targetIndex < 0 || targetIndex >= routeDistricts.value.length) return;
+  const next = [...routeDistricts.value];
+  [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+  await saveDistrictOrder(next.map((district) => district.id));
+}
+
 async function createTask() {
   const cleanTitle = title.value.trim();
   if (!cleanTitle || !firstColumnId.value) return;
@@ -449,13 +654,20 @@ onBeforeUnmount(() => {
           <span>{{ roleName(currentUser.role) }}</span>
         </div>
         <button v-if="currentUser.role === 'admin'" class="ghost-button" type="button" @click="openUsers">Пользователи</button>
-        <button class="ghost-button" type="button" @click="loadBoard">Обновить</button>
+        <button class="ghost-button" type="button" @click="refreshCurrentPage">Обновить</button>
         <button class="ghost-button" type="button" @click="logout">Выйти</button>
       </div>
     </header>
 
     <p v-if="error" class="error-note">{{ error }}</p>
-    <p v-if="loading" class="state">Загружаю доску...</p>
+    <div class="workspace-layout">
+      <aside class="primary-nav" aria-label="Основные разделы">
+        <button type="button" :class="{ active: activePage === 'kanban' }" @click="selectMainPage('kanban')">Канбан</button>
+        <button type="button" :class="{ active: activePage === 'routes' }" @click="selectMainPage('routes')">Маршрутные листы</button>
+      </aside>
+      <div class="work-content">
+        <template v-if="activePage === 'kanban'">
+          <p v-if="loading" class="state">Загружаю доску...</p>
 
     <nav v-if="!loading && columns.length" class="order-type-tabs" role="tablist" aria-label="Тип заказов">
       <button type="button" role="tab" :aria-selected="orderType === 'expense'" :class="{ active: orderType === 'expense' }" @click="selectOrderType('expense')"><span>Расход</span><span v-if="showAttentionCount('expense')" class="attention-count">{{ attentionCounts.expense }}</span></button>
@@ -563,6 +775,127 @@ onBeforeUnmount(() => {
         </div>
       </article>
     </section>
+        </template>
+
+        <section v-else class="routes-workspace">
+          <nav class="route-tabs" role="tablist" aria-label="Маршрутные листы и клиенты">
+            <button type="button" role="tab" :aria-selected="routeTab === 'sheets'" :class="{ active: routeTab === 'sheets' }" @click="selectRouteTab('sheets')">Маршрутные листы</button>
+            <button type="button" role="tab" :aria-selected="routeTab === 'clients'" :class="{ active: routeTab === 'clients' }" @click="selectRouteTab('clients')">Клиенты</button>
+          </nav>
+
+          <template v-if="routeTab === 'sheets'">
+            <section class="route-import">
+              <div class="route-page-heading">
+                <div><p class="eyebrow">Маршрутные листы</p><h2>Новый список</h2></div>
+              </div>
+              <textarea v-model="routePaste" class="route-paste" placeholder="Контрагент&#9;Комментарий" aria-label="Список контрагентов и комментариев из 1С"></textarea>
+              <div class="route-import-actions">
+                <button class="primary-action" type="button" @click="generateRouteSheet">Сформировать маршрутный лист</button>
+                <span v-if="routeImportStatus" class="import-status">{{ routeImportStatus }}</span>
+              </div>
+            </section>
+
+            <section v-if="routeSheet" class="route-sheet">
+              <div class="route-page-heading">
+                <h2>Маршрутный лист</h2>
+                <button class="ghost-button" type="button" @click="printRouteSheet">Печать</button>
+              </div>
+              <div v-for="block in routeSheet" :key="block.id ?? 'unassigned'" class="route-sheet-block">
+                <h3>{{ block.name }}</h3>
+                <table class="route-table">
+                  <thead><tr><th>Контрагент</th><th>Комментарий</th></tr></thead>
+                  <tbody>
+                    <tr v-for="client in block.clients" :key="client.id">
+                      <td>{{ client.name }}</td>
+                      <td>{{ client.comment || '—' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <footer class="route-total">Всего клиентов: <strong>{{ routeSheetTotal }}</strong></footer>
+            </section>
+          </template>
+
+          <section v-else class="clients-workspace">
+            <header class="route-page-heading clients-heading">
+              <div><p class="eyebrow">Справочник</p><h2>Клиенты</h2></div>
+              <form class="new-district-form" @submit.prevent="createDistrict">
+                <input v-model="newDistrictName" maxlength="80" placeholder="Новый район" aria-label="Название нового района" />
+                <button class="primary-action" type="submit" :disabled="!newDistrictName.trim()">Добавить район</button>
+              </form>
+            </header>
+
+            <article
+              v-for="district in routeDistricts"
+              :key="district.id"
+              class="client-district"
+              @dragover.prevent
+              @drop.stop="dropDistrictBefore(district.id)"
+            >
+              <header class="district-heading">
+                <button
+                  class="drag-handle district-drag-handle"
+                  type="button"
+                  draggable="true"
+                  aria-label="Перетащить район"
+                  title="Перетащить район"
+                  @dragstart.stop="draggedDistrictId = district.id"
+                  @dragend="draggedDistrictId = null"
+                >⠿</button>
+                <h3>{{ district.name }}</h3>
+                <span class="district-count">{{ district.clients.length }}</span>
+                <div class="client-order-buttons district-order-buttons">
+                  <button type="button" :disabled="district.position === 0" aria-label="Район выше" @click="moveDistrictBy(district.id, -1)">↑</button>
+                  <button type="button" :disabled="district.position === routeDistricts.length - 1" aria-label="Район ниже" @click="moveDistrictBy(district.id, 1)">↓</button>
+                </div>
+              </header>
+              <div v-for="group in circleGroups(district.clients)" :key="group.name" class="circle-group">
+                <h4>{{ group.name }}</h4>
+                <div class="client-list">
+                  <div
+                    v-for="(client, clientIndex) in group.clients"
+                    :key="client.id"
+                    class="route-client-row"
+                    @dragover.prevent
+                    @drop.stop="dropClientBefore(district.id, group.clients, client.id)"
+                  >
+                    <button class="drag-handle client-drag-handle" type="button" draggable="true" :aria-label="`Перетащить ${client.name}`" title="Перетащить клиента" @dragstart.stop="draggedClientId = client.id" @dragend="draggedClientId = null">⠿</button>
+                    <div class="client-name"><strong>{{ client.name }}</strong></div>
+                    <select :value="client.districtId ?? ''" aria-label="Район клиента" @change="updateRouteClient(client, { districtId: ($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null })">
+                      <option value="">Без района</option>
+                      <option v-for="item in routeDistricts" :key="item.id" :value="item.id">{{ item.name }}</option>
+                    </select>
+                    <input :value="client.circleType ?? ''" maxlength="80" placeholder="Вид круга" aria-label="Вид круга клиента" @change="updateRouteClient(client, { circleType: ($event.target as HTMLInputElement).value.trim() || null })" />
+                    <div class="client-order-buttons">
+                      <button type="button" :disabled="clientIndex === 0" aria-label="Выше" @click="moveClientBy(district.id, group.clients, client.id, -1)">↑</button>
+                      <button type="button" :disabled="clientIndex === group.clients.length - 1" aria-label="Ниже" @click="moveClientBy(district.id, group.clients, client.id, 1)">↓</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p v-if="!district.clients.length" class="empty-state">В районе пока нет клиентов</p>
+            </article>
+
+            <article v-if="unassignedClients.length" class="client-district unassigned-district">
+              <header class="district-heading"><h3>Без района</h3><span class="district-count">{{ unassignedClients.length }}</span></header>
+              <div v-for="group in circleGroups(unassignedClients)" :key="group.name" class="circle-group">
+                <h4>{{ group.name }}</h4>
+                <div class="client-list">
+                  <div v-for="(client, clientIndex) in group.clients" :key="client.id" class="route-client-row" @dragover.prevent @drop.stop="dropClientBefore(null, group.clients, client.id)">
+                    <button class="drag-handle client-drag-handle" type="button" draggable="true" :aria-label="`Перетащить ${client.name}`" title="Перетащить клиента" @dragstart.stop="draggedClientId = client.id" @dragend="draggedClientId = null">⠿</button>
+                    <div class="client-name"><strong>{{ client.name }}</strong></div>
+                    <select :value="client.districtId ?? ''" aria-label="Район клиента" @change="updateRouteClient(client, { districtId: ($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null })"><option value="">Без района</option><option v-for="item in routeDistricts" :key="item.id" :value="item.id">{{ item.name }}</option></select>
+                    <input :value="client.circleType ?? ''" maxlength="80" placeholder="Вид круга" aria-label="Вид круга клиента" @change="updateRouteClient(client, { circleType: ($event.target as HTMLInputElement).value.trim() || null })" />
+                    <div class="client-order-buttons"><button type="button" :disabled="clientIndex === 0" aria-label="Выше" @click="moveClientBy(null, group.clients, client.id, -1)">↑</button><button type="button" :disabled="clientIndex === group.clients.length - 1" aria-label="Ниже" @click="moveClientBy(null, group.clients, client.id, 1)">↓</button></div>
+                  </div>
+                </div>
+              </div>
+            </article>
+            <p v-if="!routeDistricts.length && !unassignedClients.length" class="empty-state">Клиентов пока нет</p>
+          </section>
+        </section>
+      </div>
+    </div>
 
     <div v-if="templatesOpen" class="modal-backdrop" @click.self="templatesOpen = false">
       <section class="management-modal" role="dialog" aria-modal="true" aria-labelledby="templates-title">
