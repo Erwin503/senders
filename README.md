@@ -39,15 +39,19 @@ The bot stores the sender and original message, then creates a card in `созд
 
 Telegram polling diagnostics are written to `backend/logs/telegram-bot.log` (or `TELEGRAM_LOG_FILE`). In Docker, read them with `docker compose exec backend tail -f logs/telegram-bot.log`. The same structured events are also sent to the backend console log.
 
-Each website browser has a display name stored locally. It is used for operator, warehouse, and driver attribution; this is a display name, not a user account.
+## Accounts and Roles
+
+Register the first account after the authentication migration; it becomes the administrator. Later registrations receive the manager role. The administrator can assign manager, driver, warehouse-keeper, or administrator roles from the Users dialog. Passwords are stored as salted scrypt hashes and login sessions use HttpOnly cookies.
+
+Configure `INTEGRATION_API_KEY` in the backend environment for trusted 1C requests. Send it as the `X-Api-Key` header when creating orders or changing a stage by 1C number. All other website endpoints require a logged-in session.
 
 ## API
 
-- `GET /api/board` returns columns with tasks
-- `POST /api/columns` creates a column
-- `PATCH /api/columns/:id` updates a column
-- `POST /api/tasks` creates a task
-- `PATCH /api/tasks/:id` updates a task
-- `PATCH /api/tasks/:id/move` moves a task to a column and position
-- `DELETE /api/tasks/:id` deletes a task
+- `GET /api/board` returns columns, tasks, and role-specific pending counts (authenticated)
+- `POST /api/tasks` creates a task (authenticated, or `X-Api-Key` for 1C)
+- `PATCH /api/tasks/move-by-external-number` moves a task by its 1C number (authenticated, or `X-Api-Key` for 1C)
+- `PATCH /api/tasks/:id` updates a task (authenticated)
+- `PATCH /api/tasks/:id/move` moves a task to a column and position (authenticated)
+- `DELETE /api/tasks/:id` deletes a task (authenticated)
+- `GET/POST/PATCH/DELETE /api/templates` manages order templates (admin/manager)
 

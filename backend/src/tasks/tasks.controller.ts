@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, Headers, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { AuthGuard, type AuthenticatedRequest } from '../auth/auth.guard';
+import { AuthOrIntegrationGuard } from '../auth/auth-or-integration.guard';
 import { CreateColumnDto, CreateTaskDto, MoveTaskByExternalNumberDto, MoveTaskDto, UpdateColumnDto, UpdateTaskDto } from './dto';
 import { TasksService } from './tasks.service';
 
@@ -7,60 +9,61 @@ export class TasksController {
   constructor(private readonly tasks: TasksService) {}
 
   @Get('board')
-  getBoard() {
-    return this.tasks.getBoard();
+  @UseGuards(AuthGuard)
+  getBoard(@Req() request: AuthenticatedRequest) {
+    return this.tasks.getBoard(request.user);
   }
 
   @Post('columns')
+  @UseGuards(AuthGuard)
   createColumn(@Body() dto: CreateColumnDto) {
     return this.tasks.createColumn(dto);
   }
 
   @Patch('columns/:id')
+  @UseGuards(AuthGuard)
   updateColumn(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateColumnDto) {
     return this.tasks.updateColumn(id, dto);
   }
 
   @Post('tasks')
-  createTask(@Body() dto: CreateTaskDto, @Headers('x-user-name') userName?: string) {
-    return this.tasks.createTask(dto, this.siteUser(userName));
+  @UseGuards(AuthOrIntegrationGuard)
+  createTask(@Body() dto: CreateTaskDto, @Req() request: AuthenticatedRequest) {
+    return this.tasks.createTask(dto, this.siteUser(request));
   }
 
   @Patch('tasks/:id')
+  @UseGuards(AuthGuard)
   updateTask(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateTaskDto) {
     return this.tasks.updateTask(id, dto);
   }
 
   @Patch('tasks/:id/move')
+  @UseGuards(AuthGuard)
   moveTask(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: MoveTaskDto,
-    @Headers('x-user-name') userName?: string
+    @Req() request: AuthenticatedRequest
   ) {
-    return this.tasks.moveTask(id, dto, this.siteUser(userName));
+    return this.tasks.moveTask(id, dto, this.siteUser(request));
   }
 
   @Patch('tasks/move-by-external-number')
+  @UseGuards(AuthOrIntegrationGuard)
   moveTaskByExternalNumber(
     @Body() dto: MoveTaskByExternalNumberDto,
-    @Headers('x-user-name') userName?: string
+    @Req() request: AuthenticatedRequest
   ) {
-    return this.tasks.moveTaskByExternalNumber(dto.externalNumber, dto, this.siteUser(userName));
+    return this.tasks.moveTaskByExternalNumber(dto.externalNumber, dto, this.siteUser(request));
   }
 
   @Delete('tasks/:id')
+  @UseGuards(AuthGuard)
   deleteTask(@Param('id', ParseIntPipe) id: number) {
     return this.tasks.deleteTask(id);
   }
 
-  private siteUser(name?: string) {
-    let decodedName = name;
-    try {
-      decodedName = name ? decodeURIComponent(name) : undefined;
-    } catch {
-      decodedName = name;
-    }
-    const cleanName = decodedName?.trim().slice(0, 160) || 'Оператор';
-    return { id: `site:${cleanName.toLocaleLowerCase('ru-RU')}`, name: cleanName };
+  private siteUser(request: AuthenticatedRequest) {
+    return { id: String(request.user.id), name: request.user.name };
   }
 }

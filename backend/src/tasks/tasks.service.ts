@@ -4,6 +4,7 @@ import type { Db } from '../database/knex.type';
 import { CreateColumnDto, CreateTaskDto, MoveTaskDto, UpdateColumnDto, UpdateTaskDto } from './dto';
 import { TelegramApiService } from './telegram-api.service';
 import { TelegramSettingsService } from './telegram-settings.service';
+import type { AuthUser } from '../auth/auth.types';
 
 type SiteUser = { id: string; name: string };
 
@@ -49,13 +50,15 @@ export class TasksService {
     private readonly settings: TelegramSettingsService
   ) {}
 
-  async getBoard() {
+  async getBoard(user: AuthUser) {
     const [columns, tasks] = await Promise.all([
       this.db<ColumnRow>('columns').select('*').orderBy('position', 'asc'),
       this.db<TaskRow>('tasks').select('*').orderBy([{ column: 'column_id' }, { column: 'position' }])
     ]);
 
+    const attentionCounts = await this.getAttentionCounts(user);
     return {
+      attentionCounts,
       columns: columns.map((column) => ({
         id: column.id,
         title: column.title,
@@ -69,6 +72,33 @@ export class TasksService {
             || left.position - right.position)
       }))
     };
+  }
+
+  private async getAttentionCounts(user: AuthUser) {
+    const counts = { expense: 0, income: 0, store: 0 };
+    const pending: Array<{ tab: keyof typeof counts; orderType: TaskRow['order_type']; slug: string }> = [];
+    if (user.role === 'storekeeper') {
+      pending.push(
+        { tab: 'expense', orderType: 'expense', slug: 'created' },
+        { tab: 'store', orderType: 'store', slug: 'created' },
+        { tab: 'income', orderType: 'income', slug: 'picked_up' }
+      );
+    } else if (user.role === 'driver') {
+      pending.push(
+        { tab: 'expense', orderType: 'expense', slug: 'assembled' },
+        { tab: 'income', orderType: 'income', slug: 'created' }
+      );
+    }
+    await Promise.all(pending.map(async ({ tab, orderType, slug }) => {
+      const result = await this.db<TaskRow>('tasks')
+        .join('columns', 'tasks.column_id', 'columns.id')
+        .where('tasks.order_type', orderType)
+        .where('columns.slug', slug)
+        .where((query) => query.whereNull('tasks.active_at').orWhere('tasks.active_at', '<=', this.db.fn.now()))
+        .count<{ count: number }[]>({ count: 'tasks.id' });
+      counts[tab] = Number(result[0]?.count ?? 0);
+    }));
+    return counts;
   }
 
   async createColumn(dto: CreateColumnDto) {
