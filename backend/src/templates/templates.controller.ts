@@ -27,4 +27,9 @@ export class TemplatesController {
   delete(@Req() request: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.templates.delete(id, request.user);
   }
+
+  @Post(':id/use')
+  recordUse(@Req() request: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
+    return this.templates.recordUse(id, request.user);
+  }
 }

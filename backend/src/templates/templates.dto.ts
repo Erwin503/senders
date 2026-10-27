@@ -1,11 +1,6 @@
-import { IsDateString, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
+import { IsDateString, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateTemplateDto {
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  ownerAdminId?: number;
-
   @IsIn(['income', 'expense', 'store'])
   orderType!: 'income' | 'expense' | 'store';
 

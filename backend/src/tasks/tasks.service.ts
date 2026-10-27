@@ -37,6 +37,7 @@ type TaskRow = {
   telegram_source_chat_id: string | null;
   telegram_source_message_id: number | null;
   ready_at: Date | string | null;
+  stocked_at: Date | string | null;
   active_at: Date | string | null;
   created_at: Date;
   updated_at: Date;
@@ -159,6 +160,7 @@ export class TasksService {
       responsible_id: user.id,
       responsible_name: user.name,
       ready_at: column.slug === 'ready' ? this.db.fn.now() : null,
+      stocked_at: column.slug === 'stocked' ? this.db.fn.now() : null,
       active_at: dto.activeAt ? new Date(dto.activeAt) : null,
       telegram_chat_id: source?.chatId ?? null,
       telegram_message_id: source?.messageId ?? null,
@@ -274,7 +276,10 @@ export class TasksService {
               position,
               updated_at: trx.fn.now(),
               ...(nextTask.id === id && task.column_id !== column.id
-                ? { ready_at: column.slug === 'ready' ? trx.fn.now() : null }
+                ? {
+                    ready_at: column.slug === 'ready' ? trx.fn.now() : null,
+                    stocked_at: column.slug === 'stocked' ? trx.fn.now() : null
+                  }
                 : {}),
               ...roleUpdate
             });
@@ -509,6 +514,7 @@ export class TasksService {
       driver: task.driver_id ? { id: task.driver_id, name: task.driver_name ?? task.driver_id } : null,
       telegramMessageText: task.telegram_message_text,
       readyAt: task.ready_at,
+      stockedAt: task.stocked_at,
       activeAt,
       isActive: !activeAt || new Date(activeAt).getTime() <= Date.now(),
       createdAt: task.created_at,

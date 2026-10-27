@@ -10,6 +10,11 @@ export class RouteImportEntryDto {
   @IsString()
   @MaxLength(1000)
   comment?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  orderType?: string;
 }
 
 export class ImportRouteListDto {
@@ -35,6 +40,11 @@ export class UpdateRouteClientDto {
   @IsString()
   @MaxLength(80)
   circleType?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  orderType?: string | null;
 }
 
 export class ReorderDistrictsDto {

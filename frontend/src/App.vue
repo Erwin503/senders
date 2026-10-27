@@ -6,12 +6,11 @@ type UserRole = 'admin' | 'manager' | 'driver' | 'storekeeper';
 type AuthUser = { id: number; username: string; name: string; role: UserRole };
 type OrderTemplate = {
   id: number;
-  ownerAdminId: number;
-  ownerName: string;
   orderType: 'income' | 'expense' | 'store';
   address: string;
   description: string | null;
   activeAt: string | null;
+  usageCount: number;
 };
 type RouteClient = {
   id: number;
@@ -20,6 +19,7 @@ type RouteClient = {
   districtName: string | null;
   districtPosition: number | null;
   circleType: string | null;
+  orderType: string | null;
   position: number;
   comment?: string;
 };
@@ -39,6 +39,7 @@ type Task = {
   driver: Person | null;
   telegramMessageText: string | null;
   readyAt: string | null;
+  stockedAt: string | null;
   createdAt: string;
 };
 type Column = { id: number; title: string; slug: string; orderType: 'income' | 'expense' | 'store'; position: number; tasks: Task[] };
@@ -60,9 +61,8 @@ const authPassword = ref('');
 const authError = ref('');
 const templatesOpen = ref(false);
 const templates = ref<OrderTemplate[]>([]);
-const admins = ref<Person[]>([]);
 const templateEditingId = ref<number | null>(null);
-const templateOwnerAdminId = ref<number | null>(null);
+const templateSearch = ref('');
 const templateOrderType = ref<'income' | 'expense' | 'store'>('expense');
 const templateAddress = ref('');
 const templateDescription = ref('');
@@ -74,7 +74,12 @@ const routeTab = ref<'sheets' | 'clients'>('sheets');
 const routePaste = ref('');
 const routeImportStatus = ref('');
 const routeSheet = ref<RouteSheetBlock[] | null>(null);
-const routeSheetTotal = ref(0);
+const excludedRouteDistrictIds = ref<number[]>([]);
+const visibleRouteSheet = computed(() => routeSheet.value?.filter((block) => !excludedRouteDistrictIds.value.includes(block.id ?? -1)) ?? []);
+const filteredTemplates = computed(() => {
+  const query = templateSearch.value.trim().toLocaleLowerCase('ru-RU');
+  return templates.value.filter((template) => !query || template.address.toLocaleLowerCase('ru-RU').includes(query));
+});
 const routeDistricts = ref<RouteDistrict[]>([]);
 const unassignedClients = ref<RouteClient[]>([]);
 const newDistrictName = ref('');
@@ -117,6 +122,10 @@ function visibleTasks(column: Column) {
   if (column.slug === 'ready') {
     if (isAfterReadyCutoff.value) return [];
     tasks = tasks.filter((task) => isToday(task.readyAt));
+  }
+  if (column.slug === 'stocked') tasks = tasks.filter((task) => isToday(task.stockedAt));
+  if (column.slug === 'stocked') {
+    return [...tasks].sort((left, right) => new Date(right.stockedAt ?? 0).getTime() - new Date(left.stockedAt ?? 0).getTime());
   }
   return [...tasks].sort((left, right) => Number(!isTaskActive(left)) - Number(!isTaskActive(right))
     || left.position - right.position);
@@ -231,16 +240,10 @@ function localDateTime(value: string | null) {
 async function openTemplates() {
   templatesOpen.value = true;
   templateEditingId.value = null;
+  templateSearch.value = '';
   try {
-    const [items, owners] = await Promise.all([
-      api<OrderTemplate[]>('/templates'),
-      api<Person[]>('/auth/admins')
-    ]);
+    const items = await api<OrderTemplate[]>('/templates');
     templates.value = items;
-    admins.value = owners;
-    templateOwnerAdminId.value = currentUser.value?.role === 'admin'
-      ? currentUser.value.id
-      : owners[0]?.id ? Number(owners[0].id) : null;
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : 'Не удалось загрузить шаблоны';
   }
@@ -252,14 +255,10 @@ function resetTemplateForm() {
   templateAddress.value = '';
   templateDescription.value = '';
   templateActiveAt.value = '';
-  templateOwnerAdminId.value = currentUser.value?.role === 'admin'
-    ? currentUser.value.id
-    : admins.value[0]?.id ? Number(admins.value[0].id) : null;
 }
 
 function editTemplate(template: OrderTemplate) {
   templateEditingId.value = template.id;
-  templateOwnerAdminId.value = template.ownerAdminId;
   templateOrderType.value = template.orderType;
   templateAddress.value = template.address;
   templateDescription.value = template.description ?? '';
@@ -269,7 +268,6 @@ function editTemplate(template: OrderTemplate) {
 async function saveTemplate() {
   if (!templateAddress.value.trim()) return;
   const payload = {
-    ownerAdminId: templateOwnerAdminId.value ?? undefined,
     orderType: templateOrderType.value,
     address: templateAddress.value.trim(),
     description: templateDescription.value.trim() || undefined,
@@ -307,6 +305,7 @@ async function createFromTemplate(template: OrderTemplate) {
         activeAt: template.activeAt ? new Date(template.activeAt).toISOString() : undefined
       })
     });
+    await api(`/templates/${template.id}/use`, { method: 'POST' });
     selectOrderType(template.orderType);
     templatesOpen.value = false;
     await loadBoard();
@@ -346,7 +345,11 @@ function parseRoutePaste() {
     .split(/\r?\n/)
     .map((line) => {
       const cells = line.split('\t');
-      return { name: cells.shift()?.replace(/^\uFEFF/, '').trim() ?? '', comment: cells.join('\t').trim() };
+      return {
+        name: cells.shift()?.replace(/^\uFEFF/, '').trim() ?? '',
+        comment: cells.shift()?.trim() ?? '',
+        orderType: cells.join('\t').trim()
+      };
     })
     .filter((row) => row.name);
   const header = rows[0]?.name.toLocaleLowerCase('ru-RU').replace(/\s+/g, ' ');
@@ -370,7 +373,7 @@ async function generateRouteSheet() {
       districts: RouteSheetBlock[];
     }>('/route/import', { method: 'POST', body: JSON.stringify({ entries }) });
     routeSheet.value = result.districts;
-    routeSheetTotal.value = result.uniqueCount;
+    excludedRouteDistrictIds.value = [];
     routeImportStatus.value = `Новых: ${result.addedCount} · Уже были: ${result.existingCount} · Повторов в списке: ${result.duplicateCount}`;
     await loadRouteClients();
   } catch (caught) {
@@ -380,6 +383,12 @@ async function generateRouteSheet() {
 
 function printRouteSheet() {
   window.print();
+}
+
+function toggleRouteDistrict(id: number) {
+  excludedRouteDistrictIds.value = excludedRouteDistrictIds.value.includes(id)
+    ? excludedRouteDistrictIds.value.filter((item) => item !== id)
+    : [...excludedRouteDistrictIds.value, id];
 }
 
 async function loadRouteClients() {
@@ -788,7 +797,7 @@ onBeforeUnmount(() => {
               <div class="route-page-heading">
                 <div><p class="eyebrow">Маршрутные листы</p><h2>Новый список</h2></div>
               </div>
-              <textarea v-model="routePaste" class="route-paste" placeholder="Контрагент&#9;Комментарий" aria-label="Список контрагентов и комментариев из 1С"></textarea>
+              <textarea v-model="routePaste" class="route-paste" placeholder="Контрагент&#9;Комментарий&#9;Вид заказа" aria-label="Список контрагентов, комментариев и видов заказа из 1С"></textarea>
               <div class="route-import-actions">
                 <button class="primary-action" type="button" @click="generateRouteSheet">Сформировать маршрутный лист</button>
                 <span v-if="routeImportStatus" class="import-status">{{ routeImportStatus }}</span>
@@ -800,19 +809,26 @@ onBeforeUnmount(() => {
                 <h2>Маршрутный лист</h2>
                 <button class="ghost-button" type="button" @click="printRouteSheet">Печать</button>
               </div>
-              <div v-for="block in routeSheet" :key="block.id ?? 'unassigned'" class="route-sheet-block">
+              <fieldset class="route-exclusions">
+                <legend>Исключить районы из печати</legend>
+                <label v-for="block in routeSheet" :key="block.id ?? 'unassigned'">
+                  <input type="checkbox" :checked="excludedRouteDistrictIds.includes(block.id ?? -1)" @change="toggleRouteDistrict(block.id ?? -1)" />
+                  {{ block.name }}
+                </label>
+              </fieldset>
+              <div v-for="block in visibleRouteSheet" :key="block.id ?? 'unassigned'" class="route-sheet-block">
                 <h3>{{ block.name }}</h3>
                 <table class="route-table">
                   <thead><tr><th>Контрагент</th><th>Комментарий</th></tr></thead>
                   <tbody>
                     <tr v-for="client in block.clients" :key="client.id">
                       <td>{{ client.name }}</td>
-                      <td>{{ client.comment || '—' }}</td>
+                      <td>{{ client.comment || '—' }}<small v-if="client.orderType" class="route-order-type">{{ client.orderType }}</small></td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <footer class="route-total">Всего клиентов: <strong>{{ routeSheetTotal }}</strong></footer>
+              <footer class="route-total">Всего клиентов: <strong>{{ visibleRouteSheet.reduce((count, block) => count + block.clients.length, 0) }}</strong></footer>
             </section>
           </template>
 
@@ -860,7 +876,7 @@ onBeforeUnmount(() => {
                     @drop.stop="dropClientBefore(district.id, group.clients, client.id)"
                   >
                     <button class="drag-handle client-drag-handle" type="button" draggable="true" :aria-label="`Перетащить ${client.name}`" title="Перетащить клиента" @dragstart.stop="draggedClientId = client.id" @dragend="draggedClientId = null">⠿</button>
-                    <div class="client-name"><strong>{{ client.name }}</strong></div>
+                    <div class="client-name"><strong>{{ client.name }}</strong><small v-if="client.orderType">{{ client.orderType }}</small></div>
                     <select :value="client.districtId ?? ''" aria-label="Район клиента" @change="updateRouteClient(client, { districtId: ($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null })">
                       <option value="">Без района</option>
                       <option v-for="item in routeDistricts" :key="item.id" :value="item.id">{{ item.name }}</option>
@@ -883,7 +899,7 @@ onBeforeUnmount(() => {
                 <div class="client-list">
                   <div v-for="(client, clientIndex) in group.clients" :key="client.id" class="route-client-row" @dragover.prevent @drop.stop="dropClientBefore(null, group.clients, client.id)">
                     <button class="drag-handle client-drag-handle" type="button" draggable="true" :aria-label="`Перетащить ${client.name}`" title="Перетащить клиента" @dragstart.stop="draggedClientId = client.id" @dragend="draggedClientId = null">⠿</button>
-                    <div class="client-name"><strong>{{ client.name }}</strong></div>
+                    <div class="client-name"><strong>{{ client.name }}</strong><small v-if="client.orderType">{{ client.orderType }}</small></div>
                     <select :value="client.districtId ?? ''" aria-label="Район клиента" @change="updateRouteClient(client, { districtId: ($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null })"><option value="">Без района</option><option v-for="item in routeDistricts" :key="item.id" :value="item.id">{{ item.name }}</option></select>
                     <input :value="client.circleType ?? ''" maxlength="80" placeholder="Вид круга" aria-label="Вид круга клиента" @change="updateRouteClient(client, { circleType: ($event.target as HTMLInputElement).value.trim() || null })" />
                     <div class="client-order-buttons"><button type="button" :disabled="clientIndex === 0" aria-label="Выше" @click="moveClientBy(null, group.clients, client.id, -1)">↑</button><button type="button" :disabled="clientIndex === group.clients.length - 1" aria-label="Ниже" @click="moveClientBy(null, group.clients, client.id, 1)">↓</button></div>
@@ -906,9 +922,8 @@ onBeforeUnmount(() => {
         <div class="template-layout">
           <form class="template-form" @submit.prevent="saveTemplate">
             <h3>{{ templateEditingId ? 'Изменить шаблон' : 'Новый шаблон' }}</h3>
-            <label v-if="currentUser.role === 'manager'" class="form-field"><span>Владелец</span><select v-model.number="templateOwnerAdminId" required><option v-for="admin in admins" :key="admin.id" :value="Number(admin.id)">{{ admin.name }}</option></select></label>
             <label class="form-field"><span>Вид заказа</span><select v-model="templateOrderType"><option value="expense">Расход</option><option value="income">Приход</option><option value="store">На магазин</option></select></label>
-            <label class="form-field"><span>Адрес</span><input v-model="templateAddress" maxlength="160" required /></label>
+            <label class="form-field"><span>Клиент</span><input v-model="templateAddress" maxlength="160" required /></label>
             <label class="form-field"><span>Комментарий</span><textarea v-model="templateDescription" maxlength="1000" rows="3"></textarea></label>
             <label class="form-field"><span>Активировать с</span><input v-model="templateActiveAt" type="datetime-local" /></label>
             <div class="card-actions">
@@ -917,9 +932,10 @@ onBeforeUnmount(() => {
             </div>
           </form>
           <div class="template-list">
-            <article v-for="template in templates" :key="template.id" class="template-row">
+            <input v-model="templateSearch" class="template-search" type="search" placeholder="Найти клиента" aria-label="Поиск шаблона по названию клиента" />
+            <article v-for="template in filteredTemplates" :key="template.id" class="template-row">
               <div class="template-main">
-                <span class="template-kind">{{ { expense: 'Расход', income: 'Приход', store: 'На магазин' }[template.orderType] }}<template v-if="currentUser.role === 'manager'"> · {{ template.ownerName }}</template></span>
+                <span class="template-kind">{{ { expense: 'Расход', income: 'Приход', store: 'На магазин' }[template.orderType] }} · Использовали: {{ template.usageCount }}</span>
                 <h3>{{ template.address }}</h3>
                 <p>{{ template.description || 'Без комментария' }}</p>
                 <time v-if="template.activeAt">Активация: {{ formatActivationTime(template.activeAt) }}</time>
@@ -930,7 +946,7 @@ onBeforeUnmount(() => {
                 <button class="danger-action" type="button" @click="removeTemplate(template.id)">Удалить</button>
               </div>
             </article>
-            <p v-if="!templates.length" class="empty-state">Сохранённых шаблонов пока нет</p>
+            <p v-if="!filteredTemplates.length" class="empty-state">{{ templates.length ? 'По этому запросу ничего не найдено' : 'Сохранённых шаблонов пока нет' }}</p>
           </div>
         </div>
       </section>

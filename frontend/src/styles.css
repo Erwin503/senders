@@ -357,6 +357,10 @@ select {
 .route-import-actions .primary-action, .new-district-form .primary-action { min-width: 180px; padding: 0 14px; }
 .import-status { color: #475467; font-size: 13px; font-weight: 700; }
 .route-sheet { display: grid; gap: 14px; padding-top: 16px; }
+.route-exclusions { display: flex; flex-wrap: wrap; gap: 8px 16px; border: 1px solid #d7dde6; padding: 10px 12px; }
+.route-exclusions legend { padding: 0 5px; color: #475467; font-size: 13px; font-weight: 700; }
+.route-exclusions label { display: inline-flex; align-items: center; gap: 6px; color: #344054; font-size: 13px; }
+.route-order-type { display: block; margin-top: 4px; color: #0877c9; font-size: 12px; }
 .route-sheet-block h3 { margin: 14px 0 6px; border-bottom: 1px solid #d7dde6; padding-bottom: 6px; color: #0877c9; font-size: 15px; }
 .route-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
 .route-table th, .route-table td { border: 1px solid #d7dde6; padding: 8px 10px; color: #344054; font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; text-align: left; vertical-align: top; white-space: pre-wrap; }
@@ -368,6 +372,7 @@ select {
 .new-district-form input, .route-client-row input, .route-client-row select { min-width: 0; height: 38px; border: 1px solid #d7dde6; background: #fff; color: #344054; padding: 0 9px; font-size: 13px; }
 .new-district-form input { width: 180px; }
 .client-district { border: 1px solid #e1e5eb; border-radius: 8px; background: #fff; padding: 12px; }
+.client-name small { display: block; margin-top: 3px; color: #0877c9; font-size: 12px; }
 .district-heading { display: flex; align-items: center; gap: 8px; min-height: 34px; border-bottom: 1px solid #e7ebf0; padding-bottom: 8px; }
 .district-heading h3 { flex: 1; color: #18202d; font-size: 15px; }
 .district-count { color: #7a8493; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -775,6 +780,7 @@ select {
 
 @media print {
   body, .app-shell { background: #fff; }
+  .route-exclusions { display: none !important; }
   .app-shell { width: 100%; padding: 0; }
   .topbar, .primary-nav, .route-tabs, .route-import, .clients-workspace, .route-page-heading button { display: none !important; }
   .workspace-layout { display: block; }
@@ -859,6 +865,8 @@ select {
   gap: 10px;
   padding: 14px;
 }
+
+.template-search { width: 100%; min-height: 38px; border: 1px solid #d7dde6; padding: 0 10px; color: #18202d; }
 
 .template-row {
   display: grid;
