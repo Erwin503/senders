@@ -349,21 +349,20 @@ select {
 .route-tabs { display: flex; gap: 4px; border-bottom: 1px solid #d7dde6; }
 .route-tabs button { min-height: 42px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: #667085; padding: 0 14px; font-size: 14px; font-weight: 750; }
 .route-tabs button.active { border-bottom-color: #1687d9; color: #0877c9; }
-.route-import { display: grid; gap: 12px; }
+.route-import { display: grid; gap: 7px; }
 .route-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .route-page-heading h2 { color: #18202d; font-size: 20px; }
-.route-paste { width: 100%; min-height: 130px; border: 1px solid #d7dde6; background: #fff; color: #18202d; padding: 11px 12px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; line-height: 1.5; resize: vertical; }
-.route-import-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.route-paste { width: 100%; min-height: 84px; border: 1px solid #d7dde6; background: #fff; color: #18202d; padding: 8px 10px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; line-height: 1.4; resize: vertical; }
+.route-import-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .route-import-actions .primary-action, .new-district-form .primary-action { min-width: 180px; padding: 0 14px; }
 .import-status { color: #475467; font-size: 13px; font-weight: 700; }
-.route-sheet { display: grid; gap: 14px; padding-top: 16px; }
-.route-exclusions { display: flex; flex-wrap: wrap; gap: 8px 16px; border: 1px solid #d7dde6; padding: 10px 12px; }
-.route-exclusions legend { padding: 0 5px; color: #475467; font-size: 13px; font-weight: 700; }
-.route-exclusions label { display: inline-flex; align-items: center; gap: 6px; color: #344054; font-size: 13px; }
-.route-order-type { display: block; margin-top: 4px; color: #0877c9; font-size: 12px; }
-.route-sheet-block h3 { margin: 14px 0 6px; border-bottom: 1px solid #d7dde6; padding-bottom: 6px; color: #0877c9; font-size: 15px; }
+.route-sheet { display: grid; gap: 7px; padding-top: 8px; }
+.route-exclusions { display: flex; flex-wrap: wrap; gap: 4px 12px; border: 1px solid #d7dde6; padding: 5px 8px; }
+.route-exclusions legend { padding: 0 4px; color: #475467; font-size: 12px; font-weight: 700; }
+.route-exclusions label { display: inline-flex; align-items: center; gap: 4px; color: #344054; font-size: 12px; }
+.route-sheet-block h3 { margin: 7px 0 3px; border-bottom: 1px solid #d7dde6; padding-bottom: 3px; color: #0877c9; font-size: 14px; }
 .route-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
-.route-table th, .route-table td { border: 1px solid #d7dde6; padding: 8px 10px; color: #344054; font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; text-align: left; vertical-align: top; white-space: pre-wrap; }
+.route-table th, .route-table td { border: 1px solid #d7dde6; padding: 4px 7px; color: #344054; font-size: 12px; line-height: 1.25; overflow-wrap: anywhere; text-align: left; vertical-align: top; white-space: pre-wrap; }
 .route-table th { background: #f0f5f9; color: #475467; font-weight: 800; }
 .route-table th:first-child, .route-table td:first-child { width: 46%; }
 .route-total { display: flex; justify-content: flex-end; gap: 8px; border-top: 2px solid #344054; padding: 12px 4px; color: #344054; font-size: 14px; }
@@ -372,7 +371,6 @@ select {
 .new-district-form input, .route-client-row input, .route-client-row select { min-width: 0; height: 38px; border: 1px solid #d7dde6; background: #fff; color: #344054; padding: 0 9px; font-size: 13px; }
 .new-district-form input { width: 180px; }
 .client-district { border: 1px solid #e1e5eb; border-radius: 8px; background: #fff; padding: 12px; }
-.client-name small { display: block; margin-top: 3px; color: #0877c9; font-size: 12px; }
 .district-heading { display: flex; align-items: center; gap: 8px; min-height: 34px; border-bottom: 1px solid #e7ebf0; padding-bottom: 8px; }
 .district-heading h3 { flex: 1; color: #18202d; font-size: 15px; }
 .district-count { color: #7a8493; font-size: 12px; font-variant-numeric: tabular-nums; }

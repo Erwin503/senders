@@ -19,7 +19,6 @@ type RouteClient = {
   districtName: string | null;
   districtPosition: number | null;
   circleType: string | null;
-  orderType: string | null;
   position: number;
   comment?: string;
 };
@@ -348,7 +347,7 @@ function parseRoutePaste() {
       return {
         name: cells.shift()?.replace(/^\uFEFF/, '').trim() ?? '',
         comment: cells.shift()?.trim() ?? '',
-        orderType: cells.join('\t').trim()
+        circleType: cells.join('\t').trim()
       };
     })
     .filter((row) => row.name);
@@ -794,10 +793,7 @@ onBeforeUnmount(() => {
 
           <template v-if="routeTab === 'sheets'">
             <section class="route-import">
-              <div class="route-page-heading">
-                <div><p class="eyebrow">Маршрутные листы</p><h2>Новый список</h2></div>
-              </div>
-              <textarea v-model="routePaste" class="route-paste" placeholder="Контрагент&#9;Комментарий&#9;Вид заказа" aria-label="Список контрагентов, комментариев и видов заказа из 1С"></textarea>
+              <textarea v-model="routePaste" class="route-paste" placeholder="Контрагент&#9;Комментарий&#9;Вид круга / заказа" aria-label="Список контрагентов, комментариев и вида круга из 1С"></textarea>
               <div class="route-import-actions">
                 <button class="primary-action" type="button" @click="generateRouteSheet">Сформировать маршрутный лист</button>
                 <span v-if="routeImportStatus" class="import-status">{{ routeImportStatus }}</span>
@@ -806,7 +802,6 @@ onBeforeUnmount(() => {
 
             <section v-if="routeSheet" class="route-sheet">
               <div class="route-page-heading">
-                <h2>Маршрутный лист</h2>
                 <button class="ghost-button" type="button" @click="printRouteSheet">Печать</button>
               </div>
               <fieldset class="route-exclusions">
@@ -818,12 +813,11 @@ onBeforeUnmount(() => {
               </fieldset>
               <div v-for="block in visibleRouteSheet" :key="block.id ?? 'unassigned'" class="route-sheet-block">
                 <h3>{{ block.name }}</h3>
-                <table class="route-table">
-                  <thead><tr><th>Контрагент</th><th>Комментарий</th></tr></thead>
+                <table class="route-table" :aria-label="`Клиенты района ${block.name}`">
                   <tbody>
                     <tr v-for="client in block.clients" :key="client.id">
                       <td>{{ client.name }}</td>
-                      <td>{{ client.comment || '—' }}<small v-if="client.orderType" class="route-order-type">{{ client.orderType }}</small></td>
+                      <td>{{ client.comment || '—' }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -876,7 +870,7 @@ onBeforeUnmount(() => {
                     @drop.stop="dropClientBefore(district.id, group.clients, client.id)"
                   >
                     <button class="drag-handle client-drag-handle" type="button" draggable="true" :aria-label="`Перетащить ${client.name}`" title="Перетащить клиента" @dragstart.stop="draggedClientId = client.id" @dragend="draggedClientId = null">⠿</button>
-                    <div class="client-name"><strong>{{ client.name }}</strong><small v-if="client.orderType">{{ client.orderType }}</small></div>
+                    <div class="client-name"><strong>{{ client.name }}</strong></div>
                     <select :value="client.districtId ?? ''" aria-label="Район клиента" @change="updateRouteClient(client, { districtId: ($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null })">
                       <option value="">Без района</option>
                       <option v-for="item in routeDistricts" :key="item.id" :value="item.id">{{ item.name }}</option>
@@ -899,7 +893,7 @@ onBeforeUnmount(() => {
                 <div class="client-list">
                   <div v-for="(client, clientIndex) in group.clients" :key="client.id" class="route-client-row" @dragover.prevent @drop.stop="dropClientBefore(null, group.clients, client.id)">
                     <button class="drag-handle client-drag-handle" type="button" draggable="true" :aria-label="`Перетащить ${client.name}`" title="Перетащить клиента" @dragstart.stop="draggedClientId = client.id" @dragend="draggedClientId = null">⠿</button>
-                    <div class="client-name"><strong>{{ client.name }}</strong><small v-if="client.orderType">{{ client.orderType }}</small></div>
+                    <div class="client-name"><strong>{{ client.name }}</strong></div>
                     <select :value="client.districtId ?? ''" aria-label="Район клиента" @change="updateRouteClient(client, { districtId: ($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null })"><option value="">Без района</option><option v-for="item in routeDistricts" :key="item.id" :value="item.id">{{ item.name }}</option></select>
                     <input :value="client.circleType ?? ''" maxlength="80" placeholder="Вид круга" aria-label="Вид круга клиента" @change="updateRouteClient(client, { circleType: ($event.target as HTMLInputElement).value.trim() || null })" />
                     <div class="client-order-buttons"><button type="button" :disabled="clientIndex === 0" aria-label="Выше" @click="moveClientBy(null, group.clients, client.id, -1)">↑</button><button type="button" :disabled="clientIndex === group.clients.length - 1" aria-label="Ниже" @click="moveClientBy(null, group.clients, client.id, 1)">↓</button></div>

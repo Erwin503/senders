@@ -11,7 +11,6 @@ type ClientRow = {
   district_name?: string | null;
   district_position?: number | null;
   circle_type: string | null;
-  order_type: string | null;
   position: number;
 };
 
@@ -20,21 +19,21 @@ export class RoutesService {
   constructor(@Inject(KNEX) private readonly db: Db) {}
 
   async importList(dto: ImportRouteListDto) {
-    const uniqueEntries = new Map<string, { name: string; comment: string; orderType: string }>();
+    const uniqueEntries = new Map<string, { name: string; comment: string; circleType: string }>();
     for (const entry of dto.entries) {
       const name = entry.name.trim().replace(/\s+/g, ' ');
       if (!name) continue;
       const key = this.nameKey(name);
       const comment = entry.comment?.trim() ?? '';
-      const orderType = entry.orderType?.trim() ?? '';
+      const circleType = entry.circleType?.trim() ?? '';
       const current = uniqueEntries.get(key);
       if (!current) {
-        uniqueEntries.set(key, { name, comment, orderType });
+        uniqueEntries.set(key, { name, comment, circleType });
       } else if (comment && !current.comment.split('\n').includes(comment)) {
         current.comment = current.comment ? `${current.comment}\n${comment}` : comment;
-        if (orderType) current.orderType = orderType;
-      } else if (orderType) {
-        current.orderType = orderType;
+        if (circleType) current.circleType = circleType;
+      } else if (circleType) {
+        current.circleType = circleType;
       }
     }
 
@@ -45,7 +44,7 @@ export class RoutesService {
       for (const [nameKey, entry] of uniqueEntries) {
         const exists = await trx('route_clients').where({ name_key: nameKey }).first('id');
         if (exists) {
-          if (entry.orderType) await trx('route_clients').where({ id: exists.id }).update({ order_type: entry.orderType, updated_at: trx.fn.now() });
+          if (entry.circleType) await trx('route_clients').where({ id: exists.id }).update({ circle_type: entry.circleType, updated_at: trx.fn.now() });
           continue;
         }
         try {
@@ -53,8 +52,7 @@ export class RoutesService {
             name: entry.name,
             name_key: nameKey,
             district_id: null,
-            circle_type: null,
-            order_type: entry.orderType || null,
+            circle_type: entry.circleType || null,
             position: nextPosition++
           });
           created += 1;
@@ -76,7 +74,7 @@ export class RoutesService {
     const responseEntries = [...uniqueEntries].map(([key, entry]) => {
       const client = clientByKey.get(key);
       if (!client) throw new NotFoundException(`Не удалось сохранить контрагента ${entry.name}`);
-      return { ...this.serializeClient(client), comment: entry.comment, orderType: entry.orderType || client.orderType };
+      return { ...this.serializeClient(client), comment: entry.comment };
     });
     responseEntries.sort((left, right) =>
       (left.districtPosition ?? Number.MAX_SAFE_INTEGER) - (right.districtPosition ?? Number.MAX_SAFE_INTEGER)
@@ -169,7 +167,6 @@ export class RoutesService {
       updated_at: this.db.fn.now()
     };
     if (dto.circleType !== undefined) update.circle_type = dto.circleType?.trim() || null;
-    if (dto.orderType !== undefined) update.order_type = dto.orderType?.trim() || null;
     await this.db('route_clients').where({ id }).update(update);
     return { ok: true };
   }
@@ -212,7 +209,6 @@ export class RoutesService {
       districtName: client.district_name ?? null,
       districtPosition: client.district_position ?? null,
       circleType: client.circle_type,
-      orderType: client.order_type ?? null,
       position: client.position
     };
   }
